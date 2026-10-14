@@ -1,0 +1,5 @@
+*.map
+node_modules/
+# Root .gitignore's `lib/` rule would drop the deployable bundles; this
+# extension ships built artifacts (the profile mounts it without a build step).
+!lib/

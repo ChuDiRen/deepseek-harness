@@ -12,20 +12,39 @@
 
 ```
 bigbear-agents/
-├── package.json        # dsh.bundle.patch 声明，零运行时依赖
+├── package.json        # dsh.bundle.patch + dsh.client 声明；运行时依赖仅 schema/cosmokit（已打进 lib）
 ├── cordis.patch.yml    # 插入唯一宿主行 bigbear-agents
-├── lib/index.js        # 命名空间插件：公共能力行一份 + 逐个 register preset
+├── src/                # 源码：宿主插件（index/config）+ 浏览器设置页（client/）
+├── tsdown.config.ts    # 双面构建：node ESM lib/index.js + client CJS lib/client.js（闭包工厂）
+├── lib/                # 构建产物，入库——部署机不做本地构建
 └── personas/*.md       # 每链一份人格文本（独立 diff，改这里即改智能体）
 ```
 
+## 部署配置入口（前端设置页）
+
+网关地址、API key、各链模型、工具箱目录都在 Web 界面配置，不再依赖部署机 `.env`：
+
+- 入口：主界面 **插件** 面板 → 基础分组 → **大熊工具箱** 卡片（与
+  `ui-settings-shell` 同一 `plugins.item` 槽位契约）。
+- 链路：设置页表单 → config-editor 把覆盖写进 profile 的 `cordis.patch.yml`
+  → loader 热重载本行 → `apply` 恢复旧环境后按新值注入
+  `AGENT_AI_*` / `WEB_AUTOMATION_AI_*` / `ANDROID_AI_*` / `VISION_*` 与
+  `BIGBEAR_TOOLKIT_DIR` → bash/pwsh 子进程继承，工具箱 CLI 优先读注入值
+  （python-dotenv `override=False`），项目 `.env` 只作回退。
+- 所有字段 `.volatile()`：host 侧 settings 服务只投影 volatile 字段为可编辑
+  表单，普通字段不可见。
+- 注意：profile 补丁里的值（含 API key）是本机明文，等同原来 `.env` 的安全
+  边界；补丁文件不要提交或外发。
+
 ## 可移植性契约
 
-- **toolkit 相对定位**：技能目录按「`BIGBEAR_TOOLKIT_DIR` 环境变量 → 本包的
-  `../../bigbear-toolkit/.claude/skills` → 历史独立路径」解析，全不存在时激活
-  报错并列出尝试过的路径。persona 里的运行时路径用 `{{BIGBEAR_SKILL_DIR}}`
-  占位符，注册时由插件替换（该占位符刻意避开 prompt 模板的 `{{…}}` 语法）。
-- **密钥不入库**：toolkit 只带脱敏 `.env.example`；部署时复制为 `.env` 填各家
-  API key。persona 不写网关地址，只引用项目 `.env`。
+- **toolkit 相对定位**：技能目录按「设置页 `toolkitDir` → `BIGBEAR_TOOLKIT_DIR`
+  环境变量 → 本包的 `../../bigbear-toolkit/.claude/skills` → 历史独立路径」解析，
+  全不存在时激活报错并列出尝试过的路径。persona 里的运行时路径用
+  `{{BIGBEAR_SKILL_DIR}}` 占位符，注册时由插件替换（该占位符刻意避开 prompt
+  模板的 `{{…}}` 语法）。
+- **密钥不入库**：toolkit 只带脱敏 `.env.example`；key 走设置页或部署机本地
+  `.env`，仓库零密钥。
 - **profile 挂接**：不写 `$DSH_HOME/.agent-presets/` 副本（那会产生遮蔽副本、
   阻断仓库修改）；由根目录 `install-to-profile.mjs` 建 vendor junction。
 
@@ -36,8 +55,11 @@ bigbear-agents/
 - persona 前缀的模板插值严格：只允许 `{{model}}`/`{{provider}}` 与
   `{{BIGBEAR_SKILL_DIR}}`（注册前已被替换），其余 `{{...}}` 字面量会在会话轮报
   unknown prompt variable。
+- 改完必须重新构建 **并刷新 profile 副本**（pnpm 对 `file:` 依赖做真实目录拷贝）：
 
 ```bash
-pnpm dsh --profile web --dump-config | grep bigbear-agents   # 组合门
-node --import tsx/esm apps/cli/src/bin.ts web --no-open      # 启动门 + UI 验收
+cd extensions/bigbear-agents && E:.../node_modules/.bin/tsdown   # 双面构建
+cd ~/.dsh/profiles/web && pnpm install                            # 刷新拷贝
+pnpm dsh --profile web --dump-config | grep bigbear-agents        # 组合门
+node --import tsx/esm apps/cli/src/bin.ts web --no-open           # 启动门 + UI 验收
 ```

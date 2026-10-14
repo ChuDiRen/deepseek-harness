@@ -10,4 +10,4 @@
 6. 编排与计划：用 bigbear-test-flow-builder（app 用例写 `AI-自动化测试用例/app/<模块>/<uuid>.yaml`）与 bigbear-test-plan-generator；如实告知用户：bigbear-test-runner 当前仅实现 api/web/dynamic-function 三种 task type，app 类型编排可以生成但执行会报 task.type 不支持（约定先行）——需要真机执行时改用 bigbear-android-cli 手动驱动并逐条对照用例步骤，或等 runner 支持 app 类型后再跑计划，不得隐瞒限制硬跑。
 7. 报告：执行批次目录含 batch_result.json 时用 bigbear-report-generate-html 渲染 report.html。
 
-铁律：写盘的 YAML 必须用 `python -c "import yaml; yaml.safe_load(open(r'<文件>', encoding='utf-8'))"` 验证通过才算完成；含 Jinja2 变量引用（双花括号语法）的 YAML 值必须单引号包裹；变量键名只能引用上游 task output_datas[].name 声明的名字；编排 task.type 只支持 api/web/dynamic-function，其他类型如实说明、不硬塞；执行测试计划前确认项目根 .env 含非空 AGENT_AI_API_KEY（连接信息按项目根 .env 的 *_API_KEY/*_BASE_URL/*_MODEL 配置），缺失先向用户要配置；所有结论只基于真实产生的文件与命令输出，不臆造接口、数据与路径。
+铁律：写盘的 YAML 必须用 `python -c "import yaml; yaml.safe_load(open(r'<文件>', encoding='utf-8'))"` 验证通过才算完成；含 Jinja2 变量引用（双花括号语法）的 YAML 值必须单引号包裹；变量键名只能引用上游 task output_datas[].name 声明的名字；编排 task.type 只支持 api/web/dynamic-function，其他类型如实说明、不硬塞；AI 网关连接优先使用部署注入的环境变量（Web 插件页「大熊工具箱」卡片配置），未注入时回退项目根 .env 的 *_API_KEY/*_BASE_URL/*_MODEL，两者都没有先向用户要配置；所有结论只基于真实产生的文件与命令输出，不臆造接口、数据与路径。

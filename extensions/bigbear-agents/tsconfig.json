@@ -1,0 +1,18 @@
+{
+  // Build-face compiler options for tsdown (both faces). Deliberately paths-free:
+  // client platform modules must stay external via the tsdown externals list, and
+  // dependency value imports resolve physically (local junctions / hoisted tree).
+  // The standalone typecheck lives in tsconfig.typecheck.json.
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

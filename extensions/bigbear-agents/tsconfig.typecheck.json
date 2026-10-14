@@ -1,0 +1,27 @@
+{
+  // Standalone typecheck project for the extension (outside the workspace
+  // globs): the repo paths facade for vendor/workspace sources, with the
+  // client faces pinned to their BUILT declarations — the .d.ts graphs were
+  // composed within full projects, so this standalone check avoids their
+  // declaration-merging order artifacts. Requires `pnpm run build` freshness.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "paths": {
+      "@deepseek-ai/cordis": ["../../vendor/cordis/lib/types/index.d.ts"],
+      "@deepseek-ai/cosmokit": ["../../vendor/cosmokit/lib/types/index.d.ts"],
+      "@deepseek-ai/schemastery": ["../../vendor/schemastery/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-locale/client": ["../../packages/client/locale/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-settings/client": ["../../packages/client/ui-settings/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-plugin-manager/client": ["../../packages/client/ui-plugin-manager/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-renderer/client": ["../../packages/client/ui-renderer/lib/types/client/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-primitives": ["../../packages/client/ui-primitives/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-ui-slots": ["../../packages/client/ui-slots/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-client-store": ["../../packages/client/store/lib/types/index.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

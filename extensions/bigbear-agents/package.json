@@ -1,17 +1,19 @@
 {
   "name": "dsh-bigbear-agents",
-  "description": "Three bigbear-toolkit automation agent presets for DSH: Web UI chain, API chain, and Android chain",
-  "version": "0.1.0",
+  "description": "Three bigbear-toolkit automation agent presets for DSH (Web UI / API / Android chains) with the toolkit gateway settings page",
+  "version": "0.2.0",
   "license": "MIT",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
+    "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib",
+    "lib/index.js",
+    "lib/client.js",
     "personas",
     "cordis.patch.yml"
   ],
@@ -21,9 +23,24 @@
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ],
+      "platform": "web"
     }
   },
   "engines": {
     "node": ">=22.19"
+  },
+  "dependencies": {
+    "@deepseek-ai/cosmokit": "^1.8.6",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "scripts": {
+    "bundle": "tsdown"
   }
 }
