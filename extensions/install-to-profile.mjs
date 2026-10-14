@@ -68,6 +68,34 @@ function extensionBundles() {
   })
 }
 
+/**
+ * Extension directories without a package manifest (data trees like
+ * bigbear-toolkit) are junctioned into the profile's node_modules under their
+ * basename, so plugin code resolving a workspace sibling —
+ * `node_modules/<sibling>` — finds the repository copy instead of falling back
+ * to a historical absolute path on a machine that does not have it.
+ */
+function siblingDataDirs() {
+  const dirs = []
+  for (const top of readdirSync(scriptDir, { withFileTypes: true })) {
+    if (!top.isDirectory()) continue
+    const dir = join(scriptDir, top.name)
+    if (!existsSync(join(dir, 'package.json')) && existsSync(dir)) dirs.push(dir)
+  }
+  return dirs
+}
+
+for (const dir of siblingDataDirs()) {
+  const link = join(profileDir, 'node_modules', (() => {
+    const segments = resolve(dir).slice(repoRoot.length + 1).split(/[\\/]+/)
+    return segments.at(-1)
+  })())
+  const existing = lstatSync(link, { throwIfNoEntry: false })
+  if (existing !== undefined) continue
+  symlinkSync(resolve(dir), link, 'junction')
+  console.log(`junction ${link} -> ${resolve(dir)}`)
+}
+
 const wired = []
 for (const dir of extensionBundles()) {
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))

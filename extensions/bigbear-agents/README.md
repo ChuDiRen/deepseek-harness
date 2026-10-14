@@ -36,6 +36,21 @@ bigbear-agents/
 - 注意：profile 补丁里的值（含 API key）是本机明文，等同原来 `.env` 的安全
   边界；补丁文件不要提交或外发。
 
+## 沙箱与依赖自举（动态安装）
+
+会话沙箱保持 `workspace-write`（base bundle 统一策略，本插件不加不减）：只许
+写当前工作区，系统 Python/用户 site-packages 一律不可写。因此工具箱依赖**不做
+部署期预装**，由智能体按 persona 里的「环境自举」协议在沙箱内动态自举：
+
+- 统一装进工作区根 `.venv-bigbear`，已存在直接复用、按需增量装；
+- venv 内命令行工具用 `<工作区根>\.venv-bigbear\Scripts\<命令>` 全路径调用；
+- 已知机器坑写进协议：Windows curl.exe schannel 吊销检查会 000（机器级修复：
+  `%USERPROFILE%\.curlrc` 加 `--ssl-no-revoke`），pip 镜像偶发超时重试加
+  `--timeout 120`。
+
+依赖永不越出沙箱；技能库目录（仓库副本，经 junction 挂到
+`<profile>/node_modules/bigbear-toolkit`）对会话只读。
+
 ## 可移植性契约
 
 - **toolkit 相对定位**：技能目录按「设置页 `toolkitDir` → `BIGBEAR_TOOLKIT_DIR`

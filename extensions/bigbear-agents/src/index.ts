@@ -243,7 +243,9 @@ export function entryListProblem(rows: unknown, at = ''): string | undefined {
 /**
  * Assign the derived gateway environment for the fiber's lifetime. Values the
  * config leaves unset are removed if a previous generation had set them, so a
- * settings-page save that clears a field takes effect on reload.
+ * settings-page save that clears a field takes effect on reload. Dependency
+ * provisioning stays inside the sandbox: sessions self-provision a
+ * workspace-local venv per the persona protocol, never touching host Python.
  * @param config - plain extension config.
  * @returns the fiber-scoped teardown.
  */
