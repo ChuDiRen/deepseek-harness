@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bigbear-mitmproxy-record"
+version = "0.1.0"
+description = "华测 mitmproxy 网络录制工具 - 通过系统代理录制桌面应用/APP/手机H5的 HTTP/HTTPS 流量"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "mitmproxy>=9.0",
+]
+
+[project.scripts]
+bigbear-mitmproxy-record = "bigbear_mitmproxy_record.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,4 @@
+default: true
+enabled: true
+name: 默认环境
+usage: 项目默认测试环境

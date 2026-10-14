@@ -1,0 +1,129 @@
+/**
+ * dsh-balance-meter locale dictionaries (zh/en).
+ * @module dsh-balance-meter/client/locales
+ */
+
+/** Dictionary namespace this package registers. */
+export const NS = 'balance'
+
+/** Chinese copy. */
+export const zh = {
+  'balance.total': '余额 {amount} {currency}',
+  'balance.cost': '本场 {amount} {currency}',
+  'balance.sessionCost': '本场消耗',
+  'balance.available': '可用',
+  'balance.unavailable': '不可用',
+  'balance.error': '查询失败：{error}',
+  'balance.loading': '查询中…',
+  'balance.empty': '暂无余额数据',
+  'balance.refresh': '刷新',
+  'balance.fetchedAt': '更新于 {time}',
+  'balance.granted': '赠送',
+  'balance.toppedUp': '充值',
+  'balance.sourceOfficial': '官方',
+  'balance.sourceProxy': '中转',
+  'balance.sourceManual': '本地',
+  'balance.manualInitial': '记账基线',
+  'balance.localSpent': '本地累计扣费',
+  // 插件设置卡片。
+  'settings.title': '余额',
+  'settings.description': '显示 DeepSeek 账户余额与可用状态。',
+  'settings.source': '余额来源',
+  'settings.sourceHint': '官方 API、中转兼容端点或本地手工余额。',
+  'settings.enabled': '启用余额显示',
+  'settings.enabledHint': '关闭后隐藏余额并停止轮询。',
+  'settings.apiKeyEnv': 'API Key 环境变量名',
+  'settings.apiKeyEnvHint': '存储 DeepSeek API Key 的凭据引用（默认 DEEPSEEK_API_KEY）。',
+  'settings.baseUrl': 'API 地址',
+  'settings.baseUrlHint': 'DeepSeek API 基础地址，一般保持默认。',
+  'settings.balanceEndpoint': '余额端点',
+  'settings.balanceEndpointHint': '中转余额接口的路径或完整 URL；默认 /user/balance。',
+  'settings.proxyBalancePath': '中转余额字段路径',
+  'settings.proxyBalancePathHint': '非 DeepSeek 格式时填写数字余额的点路径，如 data.balance。',
+  'settings.proxyCurrency': '中转余额币种',
+  'settings.manualBalance': '本地当前余额',
+  'settings.manualBalanceHint': '输入或修改会重建本地记账基线；允许 0，不允许负数。',
+  'settings.manualCurrency': '本地余额币种',
+  'settings.refreshInterval': '刷新间隔（秒）',
+  'settings.refreshIntervalHint': '两次向官方余额接口查询的最小间隔。',
+  'settings.inherit': '继承',
+  'settings.on': '开',
+  'settings.off': '关',
+  'settings.overridden': '已覆盖',
+  'settings.reset': '恢复默认',
+  'settings.readOnly': '当前部署的设置只读。',
+  'settings.expand': '展开设置',
+  'settings.collapse': '收起设置',
+  'settings.save': '保存',
+  'settings.saving': '保存中…',
+  'settings.discard': '放弃',
+  'settings.unsaved': '未保存',
+  'settings.saveFailed': '部署未接受这些值，已保留供你修改。',
+  'settings.invalidNumber': '请输入数字，留空则使用默认值。',
+} as const
+
+/** English copy. */
+export const en = {
+  'balance.total': 'Balance {amount} {currency}',
+  'balance.cost': 'This session {amount} {currency}',
+  'balance.sessionCost': 'This session',
+  'balance.available': 'available',
+  'balance.unavailable': 'unavailable',
+  'balance.error': 'Query failed: {error}',
+  'balance.loading': 'Loading…',
+  'balance.empty': 'No balance data yet',
+  'balance.refresh': 'Refresh',
+  'balance.fetchedAt': 'Updated {time}',
+  'balance.granted': 'granted',
+  'balance.toppedUp': 'top-up',
+  'balance.sourceOfficial': 'official',
+  'balance.sourceProxy': 'proxy',
+  'balance.sourceManual': 'local',
+  'balance.manualInitial': 'Ledger baseline',
+  'balance.localSpent': 'Locally charged',
+  // Plugin settings card.
+  'settings.title': 'Balance',
+  'settings.description': 'Show the DeepSeek account balance and availability.',
+  'settings.source': 'Balance source',
+  'settings.sourceHint': 'Official API, proxy-compatible endpoint, or a manual local balance.',
+  'settings.enabled': 'Enable the balance readout',
+  'settings.enabledHint': 'When off, the readout hides and polling stops.',
+  'settings.apiKeyEnv': 'API key env name',
+  'settings.apiKeyEnvHint': 'The credential reference storing the DeepSeek API key (default DEEPSEEK_API_KEY).',
+  'settings.baseUrl': 'API base URL',
+  'settings.baseUrlHint': 'DeepSeek API base URL; keep the default normally.',
+  'settings.balanceEndpoint': 'Balance endpoint',
+  'settings.balanceEndpointHint': 'Proxy balance path or absolute URL; defaults to /user/balance.',
+  'settings.proxyBalancePath': 'Proxy balance field path',
+  'settings.proxyBalancePathHint': 'For non-DeepSeek responses, e.g. data.balance.',
+  'settings.proxyCurrency': 'Proxy balance currency',
+  'settings.manualBalance': 'Current local balance',
+  'settings.manualBalanceHint': 'Changing it resets the local ledger baseline; zero is valid, negatives are not.',
+  'settings.manualCurrency': 'Local balance currency',
+  'settings.refreshInterval': 'Refresh interval (s)',
+  'settings.refreshIntervalHint': 'Minimum seconds between official balance queries.',
+  'settings.inherit': 'Inherit',
+  'settings.on': 'On',
+  'settings.off': 'Off',
+  'settings.overridden': 'Overridden',
+  'settings.reset': 'Reset to default',
+  'settings.readOnly': 'This deployment stores settings read-only.',
+  'settings.expand': 'Show settings',
+  'settings.collapse': 'Hide settings',
+  'settings.save': 'Save',
+  'settings.saving': 'Saving…',
+  'settings.discard': 'Discard',
+  'settings.unsaved': 'Unsaved',
+  'settings.saveFailed': 'The deployment did not accept these values; they were left for you to correct.',
+  'settings.invalidNumber': 'Enter a number, or leave blank to use the default.',
+} as const
+
+/** Key union for this namespace. */
+export type BalanceKey = keyof typeof zh
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** dsh-balance-meter UI copy. */
+    balance: BalanceKey
+  }
+}

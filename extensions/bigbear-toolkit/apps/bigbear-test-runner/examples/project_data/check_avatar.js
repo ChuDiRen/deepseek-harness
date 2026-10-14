@@ -1,0 +1,1 @@
+async page = const result = await page.evaluate(() = const imgs = document.querySelectorAll('img'); return Array.from(imgs).map(img = img.src, complete: img.complete, w: img.naturalWidth, h: img.naturalHeight})); }); return JSON.stringify(result); } 

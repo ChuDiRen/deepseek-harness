@@ -1,0 +1,17 @@
+case_id: 244d5b6d8bc64535b9ef1ec72974e88c
+case_type: web
+case_priority: P0
+case_title: 登录表单-正常登录
+case_precondition: 未登录态，登录表单区可见，已注册且账号状态正常的用户
+case_content:
+  steps:
+  - 打开网址 http://novel.hctestedu.com/user/login.html
+  - '"手机号码"输入框 输入 "{{手机号}}"'
+  - '"密码"密码框 输入 "{{登录密码}}"'
+  - 点击"登录"按钮
+  expected:
+  - 登录接口返回成功
+  - 浏览器跳转至首页
+  - 顶部导航显示已登录态用户名
+  - 顶部右上角显示"退出"入口
+updated_at: '2026-07-10 15:36:00'

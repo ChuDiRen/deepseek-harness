@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "reason": "执行成功",
+  "outputs": {
+    "username": "admin",
+    "password": "123456"
+  }
+}

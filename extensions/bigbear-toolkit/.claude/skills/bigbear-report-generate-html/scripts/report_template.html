@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>测试报告 · {{ batch_id }}</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --subtext: #64748b;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-soft: #dbeafe;
+      --pass: #10b981;
+      --pass-soft: #d1fae5;
+      --fail: #ef4444;
+      --fail-soft: #fee2e2;
+      --error: #f59e0b;
+      --error-soft: #fef3c7;
+      --pending: #94a3b8;
+      --pending-soft: #f1f5f9;
+      --api: #2563eb;
+      --web: #ea580c;
+      --dyn: #7c3aed;
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+      --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+      --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.10);
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    code, pre, .mono { font-family: "SF Mono", "JetBrains Mono", Consolas, Monaco, "Courier New", monospace; }
+
+    /* ───── 顶栏 ───── */
+    .topbar {
+      height: 64px;
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      color: #fff;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      box-shadow: var(--shadow-md);
+      z-index: 10;
+      position: relative;
+    }
+    .topbar .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .topbar .brand .logo {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+      display: grid; place-items: center;
+      font-size: 14px; font-weight: 700;
+    }
+    .topbar .meta {
+      display: flex; gap: 18px;
+      font-size: 12.5px;
+      color: #cbd5e1;
+      margin-left: auto;
+      flex-wrap: wrap;
+    }
+    .topbar .meta b { color: #fff; font-weight: 500; }
+    .topbar .meta .item { display: inline-flex; align-items: center; gap: 6px; }
+    .topbar .meta .item .k { color: #94a3b8; }
+
+    /* ───── 统计条 ───── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      padding: 16px 24px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .stat-card {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .stat-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+    .stat-card .icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: grid; place-items: center;
+      font-size: 16px; font-weight: 700;
+      color: #fff;
+    }
+    .stat-card.total .icon { background: var(--accent); }
+    .stat-card.pass  .icon { background: var(--pass); }
+    .stat-card.fail  .icon { background: var(--fail); }
+    .stat-card.error .icon { background: var(--error); }
+    .stat-card.dur   .icon { background: #8b5cf6; }
+    .stat-card .meta { display: flex; flex-direction: column; }
+    .stat-card .label { font-size: 11px; color: var(--subtext); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card .value { font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.2; }
+
+    /* ───── 三栏主区 ───── */
+    .main {
+      display: grid;
+      grid-template-columns: 300px 380px 1fr;
+      height: calc(100vh - 64px - 89px);
+      gap: 1px;
+      background: var(--border);
+    }
+    .panel {
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      background: linear-gradient(to bottom, #fafbfc, #ffffff);
+      flex-shrink: 0;
+      min-height: 52px;
+    }
+    .panel-head .title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.2px;
+    }
+    .panel-head .count {
+      font-size: 11px;
+      color: var(--subtext);
+      background: var(--bg);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+    .panel-head .back-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--accent); font-size: 12px; padding: 2px 4px;
+      display: none;
+    }
+    .panel-head .back-btn:hover { text-decoration: underline; }
+    .panel-body { flex: 1; overflow-y: auto; }
+    .panel-body::-webkit-scrollbar { width: 8px; height: 8px; }
+    .panel-body::-webkit-scrollbar-track { background: transparent; }
+    .panel-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .panel-body::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* ───── 左栏：流程 ───── */
+    .flow-item {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background .12s;
+      border-left: 3px solid transparent;
+      position: relative;
+    }
+    .flow-item:hover { background: #f8fafc; }
+    .flow-item.active {
+      background: var(--accent-soft);
+      border-left-color: var(--accent);
+    }
+    .flow-item .name {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+    .flow-item .id {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: monospace;
+      margin-bottom: 8px;
+      word-break: break-all;
+    }
+    .flow-item .badges {
+      display: flex; gap: 6px; flex-wrap: wrap;
+      font-size: 11px;
+    }
+    .flow-item .progress {
+      height: 4px; background: var(--bg);
+      border-radius: 2px; overflow: hidden;
+      margin-top: 8px;
+      display: flex;
+    }
+    .flow-item .progress > div { height: 100%; }
+    .flow-item .progress .p { background: var(--pass); }
+    .flow-item .progress .f { background: var(--fail); }
+    .flow-item .progress .e { background: var(--error); }
+    .flow-item .progress .d { background: var(--pending); flex: 1; }
+
+    .mini-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 1px 7px; border-radius: 8px;
+      font-size: 11px; font-weight: 500;
+    }
+    .mini-badge.total { background: var(--bg); color: var(--subtext); }
+    .mini-badge.pass  { background: var(--pass-soft); color: #047857; }
+    .mini-badge.fail  { background: var(--fail-soft); color: #b91c1c; }
+    .mini-badge.error { background: var(--error-soft); color: #b45309; }
+
+    /* ───── 中栏：任务 ───── */
+    .task-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background .12s;
+      border-left: 3px solid transparent;
+      display: flex; align-items: flex-start; gap: 10px;
+    }
+    .task-item:hover { background: #f8fafc; }
+    .task-item.active {
+      background: var(--accent-soft);
+      border-left-color: var(--accent);
+    }
+    .task-item .idx {
+      width: 24px; height: 24px;
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--subtext);
+      display: grid; place-items: center;
+      font-size: 11px; font-weight: 600;
+      flex-shrink: 0;
+      font-family: monospace;
+    }
+    .task-item.active .idx { background: var(--accent); color: #fff; }
+    .task-item .body { flex: 1; min-width: 0; }
+    .task-item .title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 4px;
+      line-height: 1.35;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .task-item .meta-line {
+      display: flex; gap: 6px; align-items: center;
+      font-size: 11px;
+      color: var(--subtext);
+      flex-wrap: wrap;
+    }
+    .task-item .meta-line .dur { font-family: monospace; }
+
+    .status-badge, .type-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 1px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 600;
+      line-height: 1.6;
+    }
+    .status-badge.pass    { background: var(--pass-soft); color: #047857; }
+    .status-badge.fail    { background: var(--fail-soft); color: #b91c1c; }
+    .status-badge.error   { background: var(--error-soft); color: #b45309; }
+    .status-badge.pending { background: var(--pending-soft); color: var(--subtext); }
+    .type-badge.api               { background: #dbeafe; color: var(--api); }
+    .type-badge.web               { background: #ffedd5; color: var(--web); }
+    .type-badge.dynamic-function  { background: #ede9fe; color: var(--dyn); }
+
+    /* 中栏过滤条 */
+    .filter-bar {
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; gap: 6px; flex-wrap: wrap;
+      background: #fafbfc;
+      flex-shrink: 0;
+    }
+    .filter-chip {
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      color: var(--subtext);
+      transition: all .12s;
+    }
+    .filter-chip:hover { border-color: var(--border-strong); }
+    .filter-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ───── 右栏：详情 ───── */
+    .detail-head {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(to bottom, #fafbfc, #ffffff);
+      flex-shrink: 0;
+    }
+    .detail-head .top-line {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .detail-head .title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .detail-head .subtitle {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--subtext);
+    }
+    .detail-head .subtitle code {
+      background: var(--bg);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .detail-head .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px 20px;
+      margin-top: 12px;
+    }
+    .detail-head .meta-item {
+      font-size: 12px;
+    }
+    .detail-head .meta-item .k { color: var(--subtext); margin-right: 6px; }
+    .detail-head .meta-item .v { color: var(--text); font-weight: 500; }
+
+    .detail-body { flex: 1; overflow-y: auto; padding: 0; }
+    .detail-empty {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      gap: 12px;
+      padding: 40px;
+    }
+    .detail-empty .icon { font-size: 48px; opacity: 0.4; }
+    .detail-empty .text { font-size: 13px; }
+
+    .section {
+      border-bottom: 1px solid var(--border);
+    }
+    .section-head {
+      padding: 12px 24px;
+      background: #fafbfc;
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .section-head:hover { background: #f1f5f9; }
+    .section-head .icon-arrow {
+      margin-left: auto;
+      color: var(--muted);
+      transition: transform .2s;
+      font-size: 12px;
+    }
+    .section.collapsed .icon-arrow { transform: rotate(-90deg); }
+    .section.collapsed .section-body { display: none; }
+    .section-head .title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .section-head .counter {
+      font-size: 11px;
+      color: var(--subtext);
+      background: var(--panel);
+      padding: 1px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .section-body { padding: 16px 24px; }
+
+    /* 表格 */
+    .kv-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+    .kv-table th, .kv-table td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .kv-table th {
+      width: 30%;
+      color: var(--subtext);
+      font-weight: 500;
+      background: var(--bg);
+    }
+    .kv-table td code {
+      font-size: 12px;
+      background: var(--bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: #1e293b;
+      word-break: break-all;
+    }
+    .kv-table td pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* 预格式化块（请求/响应） */
+    pre.code-block {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      line-height: 1.55;
+      overflow-x: auto;
+      max-height: 360px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    pre.code-block.json { background: #0f172a; }
+
+    .req-resp-line {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .req-resp-line .method {
+      background: var(--accent);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: monospace;
+    }
+    .req-resp-line .url {
+      font-family: monospace;
+      font-size: 12.5px;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .req-resp-line .status {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: monospace;
+    }
+    .req-resp-line .status.s2 { background: var(--pass-soft); color: #047857; }
+    .req-resp-line .status.s3 { background: var(--pass-soft); color: #047857; }
+    .req-resp-line .status.s4 { background: var(--error-soft); color: #b45309; }
+    .req-resp-line .status.s5 { background: var(--fail-soft); color: #b91c1c; }
+    .req-resp-line .status.s0 { background: var(--bg); color: var(--subtext); }
+    .req-resp-line .copy-btn {
+      margin-left: auto;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--subtext);
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .req-resp-line .copy-btn:hover { background: var(--bg); color: var(--text); }
+
+    .sub-label {
+      font-size: 11px;
+      color: var(--subtext);
+      margin: 10px 0 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* 断言表 */
+    .assert-row {
+      display: flex;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 4px;
+      background: var(--bg);
+      align-items: flex-start;
+    }
+    .assert-row.ok { border-left: 3px solid var(--pass); }
+    .assert-row.bad { border-left: 3px solid var(--fail); }
+    .assert-row .mark { font-size: 12px; font-weight: 700; padding-top: 1px; }
+    .assert-row.ok .mark { color: var(--pass); }
+    .assert-row.bad .mark { color: var(--fail); }
+    .assert-row .text { flex: 1; font-size: 12.5px; color: var(--text); }
+    .assert-row .actual {
+      font-family: monospace;
+      font-size: 11.5px;
+      color: var(--subtext);
+      background: var(--panel);
+      padding: 1px 6px;
+      border-radius: 3px;
+      max-width: 200px;
+      word-break: break-all;
+    }
+
+    /* 步骤列表 */
+    .step-list { list-style: none; counter-reset: step; }
+    .step-list li {
+      counter-increment: step;
+      padding: 8px 10px 8px 36px;
+      position: relative;
+      border-radius: var(--radius-sm);
+      margin-bottom: 4px;
+      background: var(--bg);
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .step-list li::before {
+      content: counter(step);
+      position: absolute;
+      left: 8px; top: 8px;
+      width: 22px; height: 22px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: monospace;
+    }
+
+    /* 截图网格 */
+    .screenshot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .screenshot-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: var(--bg);
+      cursor: zoom-in;
+      transition: transform .12s, box-shadow .12s;
+    }
+    .screenshot-item:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--accent);
+    }
+    .screenshot-item img {
+      width: 100%;
+      height: 140px;
+      object-fit: cover;
+      object-position: top;
+      display: block;
+      background: #f1f5f9;
+    }
+    .screenshot-item .caption {
+      padding: 6px 10px;
+      font-size: 11px;
+      color: var(--subtext);
+      font-family: monospace;
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .screenshot-item .caption .step-no {
+      background: var(--accent);
+      color: #fff;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .screenshot-item .img-fail {
+      height: 140px;
+      display: grid; place-items: center;
+      color: var(--fail);
+      font-size: 12px;
+      background: var(--fail-soft);
+    }
+
+    /* 附件列表 */
+    .attachment-list { display: flex; flex-direction: column; gap: 6px; }
+    .attachment-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      color: var(--text);
+      transition: background .12s;
+    }
+    .attachment-item:hover { background: #e2e8f0; }
+    .attachment-item .file-icon {
+      width: 28px; height: 28px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 6px;
+      display: grid; place-items: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .attachment-item .file-name {
+      flex: 1; font-size: 12.5px;
+      word-break: break-all;
+    }
+    .attachment-item .file-size {
+      font-size: 11px;
+      color: var(--subtext);
+      font-family: monospace;
+    }
+
+    /* 错误块 */
+    pre.error-block {
+      background: var(--fail-soft);
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* 灯箱 */
+    .lightbox {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.92);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      cursor: zoom-out;
+      backdrop-filter: blur(8px);
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img {
+      max-width: 95vw;
+      max-height: 92vh;
+      object-fit: contain;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      border-radius: 4px;
+    }
+    .lightbox .close-hint {
+      position: fixed;
+      top: 20px; right: 20px;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      backdrop-filter: blur(4px);
+    }
+
+    /* 空态 */
+    .empty-note {
+      color: var(--muted);
+      font-style: italic;
+      font-size: 12.5px;
+      padding: 12px 0;
+      text-align: center;
+    }
+
+    /* 损坏提示 */
+    .corrupted-banner {
+      background: var(--error-soft);
+      border: 1px solid #fde68a;
+      color: #92400e;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      margin: 0 24px 12px;
+      font-size: 13px;
+    }
+
+    /* 响应式（窄屏降级） */
+    @media (max-width: 1024px) {
+      .main { grid-template-columns: 240px 1fr; }
+      .panel.tasks { display: none; }
+      .stats { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .topbar { padding: 0 14px; gap: 12px; }
+      .topbar .meta { display: none; }
+      .main { grid-template-columns: 1fr; }
+      .panel.flows { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">T</div>
+      <span>测试报告</span>
+    </div>
+    <div class="meta">
+      <span class="item"><span class="k">计划</span><b>{{ plan_name or '-' }}</b></span>
+      <span class="item"><span class="k">批次</span><b>{{ batch_id }}</b></span>
+      {% if started_at %}<span class="item"><span class="k">开始</span><b>{{ started_at }}</b></span>{% endif %}
+      {% if finished_at %}<span class="item"><span class="k">结束</span><b>{{ finished_at }}</b></span>{% endif %}
+    </div>
+  </header>
+
+  <!-- 统计条 -->
+  <div class="stats">
+    <div class="stat-card total">
+      <div class="icon">Σ</div>
+      <div class="meta"><div class="label">任务总数</div><div class="value">{{ summary.task_count or 0 }}</div></div>
+    </div>
+    <div class="stat-card pass">
+      <div class="icon">✓</div>
+      <div class="meta"><div class="label">通过</div><div class="value">{{ summary.passed or 0 }}</div></div>
+    </div>
+    <div class="stat-card fail">
+      <div class="icon">✗</div>
+      <div class="meta"><div class="label">失败</div><div class="value">{{ summary.failed or 0 }}</div></div>
+    </div>
+    <div class="stat-card error">
+      <div class="icon">!</div>
+      <div class="meta"><div class="label">异常</div><div class="value">{{ summary.errored or 0 }}</div></div>
+    </div>
+    <div class="stat-card dur">
+      <div class="icon">⏱</div>
+      <div class="meta"><div class="label">总耗时</div><div class="value">{% if duration_ms is not none %}{{ duration_ms }} ms{% else %}-{% endif %}</div></div>
+    </div>
+  </div>
+
+  <!-- 三栏主区 -->
+  <div class="main">
+    <!-- 左栏：流程 -->
+    <section class="panel flows">
+      <div class="panel-head">
+        <span class="title">流程</span>
+        <span class="count" id="flow-count">0</span>
+      </div>
+      <div class="panel-body" id="flow-list"></div>
+    </section>
+
+    <!-- 中栏：任务 -->
+    <section class="panel tasks">
+      <div class="panel-head">
+        <span class="title" id="task-panel-title">任务</span>
+        <span class="count" id="task-count">0</span>
+      </div>
+      <div class="filter-bar" id="filter-bar">
+        <span class="filter-chip active" data-filter="all">全部</span>
+        <span class="filter-chip" data-filter="pass">通过</span>
+        <span class="filter-chip" data-filter="fail">失败</span>
+        <span class="filter-chip" data-filter="error">异常</span>
+        <span class="filter-chip" data-filter="pending">未跑</span>
+      </div>
+      <div class="panel-body" id="task-list"></div>
+    </section>
+
+    <!-- 右栏：详情 -->
+    <section class="panel detail">
+      <div class="detail-head" id="detail-head" style="display:none;"></div>
+      <div class="detail-body" id="detail-body">
+        <div class="detail-empty" id="detail-empty">
+          <div class="icon">📋</div>
+          <div class="text">从左侧选一个流程，再选一个任务查看详情</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 灯箱 -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <div class="close-hint">点击任意处关闭 · Esc</div>
+    <img id="lightbox-img" src="" alt="">
+  </div>
+
+  <!-- 数据注入 -->
+  <script type="application/json" id="report-data">{{ batch_json | safe }}</script>
+  <script>
+    'use strict';
+
+    // ───── 工具 ─────
+    const IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico'];
+    const isImage = (path) => {
+      if (!path) return false;
+      const ext = (path.split('.').pop() || '').toLowerCase();
+      return IMG_EXT.includes(ext);
+    };
+    const escapeHtml = (s) => {
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+    const formatJson = (body) => {
+      if (!body) return '';
+      try { return JSON.stringify(JSON.parse(body), null, 2); }
+      catch { return body; }
+    };
+    const isJsonResp = (resp) => {
+      const ct = (resp && resp.headers && (resp.headers['Content-Type'] || resp.headers['content-type'])) || '';
+      return /json/i.test(ct);
+    };
+    const statusClass = (s) => {
+      if (!s) return 's0';
+      const n = Math.floor(s / 100);
+      return 's' + n;
+    };
+    const fileSize = (n) => {
+      if (n == null) return '';
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1024 / 1024).toFixed(1) + ' MB';
+    };
+    const getFileName = (path) => {
+      if (!path) return '';
+      return path.split(/[\\\/]/).pop();
+    };
+    const getFileExt = (path) => {
+      if (!path) return '';
+      const m = path.match(/\.([a-zA-Z0-9]+)$/);
+      return m ? m[1].toUpperCase() : 'FILE';
+    };
+
+    // ───── 状态 ─────
+    const BATCH = JSON.parse(document.getElementById('report-data').textContent);
+    const BATCH_DIR = BATCH.batch_dir || '';
+    let state = {
+      flowId: null,
+      taskIndex: null,
+      filter: 'all',
+    };
+
+    // ───── 渲染：左栏（流程） ─────
+    function renderFlows() {
+      const list = document.getElementById('flow-list');
+      const flows = BATCH.flows || [];
+      document.getElementById('flow-count').textContent = flows.length;
+      if (flows.length === 0) {
+        list.innerHTML = '<div class="empty-note">（无流程）</div>';
+        return;
+      }
+      list.innerHTML = flows.map(f => {
+        const s = f.summary || {};
+        const total = s.task_count || 0;
+        const pass = s.passed || 0;
+        const fail = s.failed || 0;
+        const err = s.errored || 0;
+        const passPct = total > 0 ? (pass / total * 100) : 0;
+        const failPct = total > 0 ? (fail / total * 100) : 0;
+        const errPct = total > 0 ? (err / total * 100) : 0;
+        const active = state.flowId === f.flow_id ? ' active' : '';
+        return `
+          <div class="flow-item${active}" data-flow-id="${escapeHtml(f.flow_id)}" onclick="selectFlow('${escapeHtml(f.flow_id)}')">
+            <div class="name">${escapeHtml(f.flow_name || f.flow_id)}</div>
+            <div class="id">${escapeHtml(f.flow_id)}</div>
+            <div class="badges">
+              <span class="mini-badge total">${total} 个任务</span>
+              ${pass ? `<span class="mini-badge pass">✓ ${pass}</span>` : ''}
+              ${fail ? `<span class="mini-badge fail">✗ ${fail}</span>` : ''}
+              ${err  ? `<span class="mini-badge error">⚠ ${err}</span>` : ''}
+            </div>
+            <div class="progress">
+              <div class="p" style="width:${passPct}%"></div>
+              <div class="f" style="width:${failPct}%"></div>
+              <div class="e" style="width:${errPct}%"></div>
+              <div class="d"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ───── 渲染：中栏（任务） ─────
+    function renderTasks() {
+      const list = document.getElementById('task-list');
+      const flow = (BATCH.flows || []).find(f => f.flow_id === state.flowId);
+      const titleEl = document.getElementById('task-panel-title');
+      if (!flow) {
+        list.innerHTML = '<div class="empty-note">（请先选一个流程）</div>';
+        document.getElementById('task-count').textContent = 0;
+        titleEl.textContent = '任务';
+        return;
+      }
+      titleEl.textContent = flow.flow_name || '任务';
+      let tasks = flow.tasks || [];
+      if (state.filter !== 'all') {
+        tasks = tasks.filter(t => (t.status || 'pending') === state.filter);
+      }
+      document.getElementById('task-count').textContent = tasks.length;
+      if (tasks.length === 0) {
+        list.innerHTML = '<div class="empty-note">（无任务）</div>';
+        return;
+      }
+      list.innerHTML = tasks.map(t => {
+        const status = t.status || 'pending';
+        const active = state.taskIndex === t.task_index ? ' active' : '';
+        return `
+          <div class="task-item${active}" data-task-index="${t.task_index}" onclick="selectTask(${t.task_index})">
+            <div class="idx">${t.task_index ?? '-'}</div>
+            <div class="body">
+              <div class="title">${escapeHtml(t.title || t.task_yaml || '-')}</div>
+              <div class="meta-line">
+                <span class="type-badge ${t.type || ''}">${t.type || '-'}</span>
+                <span class="status-badge ${status}">${status}</span>
+                <span class="dur">${t.duration_ms != null ? t.duration_ms + 'ms' : ''}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ───── 渲染：右栏（详情） ─────
+    function renderDetail() {
+      const headEl = document.getElementById('detail-head');
+      const bodyEl = document.getElementById('detail-body');
+      const emptyEl = document.getElementById('detail-empty');
+      const flow = (BATCH.flows || []).find(f => f.flow_id === state.flowId);
+      const task = flow && flow.tasks ? flow.tasks.find(t => t.task_index === state.taskIndex) : null;
+
+      if (!task) {
+        headEl.style.display = 'none';
+        bodyEl.innerHTML = '';
+        bodyEl.appendChild(emptyEl);
+        emptyEl.style.display = 'flex';
+        return;
+      }
+      emptyEl.style.display = 'none';
+      headEl.style.display = '';
+      const status = task.status || 'pending';
+
+      headEl.innerHTML = `
+        <div class="top-line">
+          <span class="title">${escapeHtml(task.title || task.task_yaml || '-')}</span>
+          ${task.type ? `<span class="type-badge ${task.type}">${task.type}</span>` : ''}
+          <span class="status-badge ${status}">${status}</span>
+        </div>
+        <div class="subtitle">
+          <span>#${task.task_index ?? '-'}</span>
+          ${task.source_id ? `<code>${escapeHtml(task.source_id)}</code>` : ''}
+          ${task.task_yaml ? `<code>${escapeHtml(task.task_yaml)}</code>` : ''}
+        </div>
+        <div class="meta-grid">
+          <div class="meta-item"><span class="k">开始</span><span class="v">${task.started_at || '-'}</span></div>
+          <div class="meta-item"><span class="k">结束</span><span class="v">${task.finished_at || '-'}</span></div>
+          <div class="meta-item"><span class="k">耗时</span><span class="v">${task.duration_ms != null ? task.duration_ms + ' ms' : '-'}</span></div>
+          ${task.task_yaml ? `<div class="meta-item"><span class="k">文件</span><span class="v mono" style="font-size:11px">${escapeHtml(task.task_yaml)}</span></div>` : ''}
+        </div>
+      `;
+
+      const sections = [];
+
+      if (task.corrupted) {
+        sections.push({ id: 'corrupted', title: '警告', counter: '⚠', html: '<div class="corrupted-banner" style="margin:0;">⚠ result 文件损坏，只显示文件名信息</div>' });
+      }
+
+      if (task.inputs && task.inputs.length > 0) {
+        sections.push({
+          id: 'inputs', title: '输入', counter: task.inputs.length,
+          html: `<table class="kv-table"><thead><tr><th>名称</th><th>渲染后的值</th></tr></thead><tbody>${
+            task.inputs.map(i => `<tr><td><code>${escapeHtml(i.name)}</code></td><td><code>${escapeHtml(typeof i.value_rendered === 'string' ? i.value_rendered : JSON.stringify(i.value_rendered))}</code></td></tr>`).join('')
+          }</tbody></table>`
+        });
+      }
+
+      if (task.outputs && task.outputs.length > 0) {
+        sections.push({
+          id: 'outputs', title: '输出', counter: task.outputs.length,
+          html: `<table class="kv-table"><thead><tr><th>名称</th><th>值</th></tr></thead><tbody>${
+            task.outputs.map(o => `<tr><td><code>${escapeHtml(o.name)}</code></td><td><code>${escapeHtml(typeof o.value === 'string' ? o.value : JSON.stringify(o.value))}</code></td></tr>`).join('')
+          }</tbody></table>`
+        });
+      }
+
+      if (task.expected && task.expected.length > 0) {
+        sections.push({
+          id: 'expected', title: '期望项', counter: task.expected.length,
+          html: `<ol style="padding-left:24px;">${
+            task.expected.map(e => `<li style="margin:4px 0;">${escapeHtml(e)}</li>`).join('')
+          }</ol>`
+        });
+      }
+
+      if (task.assertion && task.assertion.items && task.assertion.items.length > 0) {
+        const total = task.assertion.total || 0;
+        const passed = task.assertion.passed || 0;
+        const failed = task.assertion.failed || 0;
+        sections.push({
+          id: 'assertion', title: '断言详情', counter: `${passed}/${total}`,
+          html: `<div>${
+            task.assertion.items.map(it => {
+              const ok = it.passed === true;
+              return `<div class="assert-row ${ok ? 'ok' : 'bad'}">
+                <div class="mark">${ok ? '✓' : '✗'}</div>
+                <div class="text">${escapeHtml(it.item || '')}</div>
+                <div class="actual">${escapeHtml(it.actual === undefined || it.actual === null ? '' : (typeof it.actual === 'string' ? it.actual : JSON.stringify(it.actual)))}</div>
+              </div>`;
+            }).join('')
+          }</div>
+          <div style="margin-top:10px; padding:8px 10px; background:var(--bg); border-radius:6px; font-size:12.5px;">
+            <b>${passed}</b> 通过 / <b style="color:var(--fail)">${failed}</b> 失败 / <b>${total}</b> 总
+          </div>`
+        });
+      }
+
+      if (task.request) {
+        const r = task.request;
+        const headers = r.headers || {};
+        const headersHtml = Object.keys(headers).length
+          ? `<table class="kv-table"><thead><tr><th>Header</th><th>Value</th></tr></thead><tbody>${
+              Object.keys(headers).map(k => `<tr><td><code>${escapeHtml(k)}</code></td><td><code>${escapeHtml(headers[k])}</code></td></tr>`).join('')
+            }</tbody></table>`
+          : '<div class="empty-note">（无 headers）</div>';
+        sections.push({
+          id: 'request', title: '请求', counter: r.method || '?',
+          html: `
+            <div class="req-resp-line">
+              <span class="method">${escapeHtml(r.method || '?')}</span>
+              <span class="url">${escapeHtml(r.url || '')}</span>
+              <button class="copy-btn" onclick="copyText('request-pre')">复制</button>
+            </div>
+            <div class="sub-label">Headers</div>${headersHtml}
+            <div class="sub-label">Body</div>
+            <pre class="code-block" id="request-pre">${escapeHtml(r.body || '(空)')}</pre>
+          `
+        });
+      }
+
+      if (task.response) {
+        const r = task.response;
+        const headers = r.headers || {};
+        const headersHtml = Object.keys(headers).length
+          ? `<table class="kv-table"><thead><tr><th>Header</th><th>Value</th></tr></thead><tbody>${
+              Object.keys(headers).map(k => `<tr><td><code>${escapeHtml(k)}</code></td><td><code>${escapeHtml(headers[k])}</code></td></tr>`).join('')
+            }</tbody></table>`
+          : '<div class="empty-note">（无 headers）</div>';
+        const body = r.body || '';
+        const isJson = isJsonResp(r);
+        const bodyHtml = isJson
+          ? `<pre class="code-block json" id="response-pre">${escapeHtml(formatJson(body))}</pre>`
+          : `<pre class="code-block" id="response-pre">${escapeHtml(body || '(空)')}</pre>`;
+        sections.push({
+          id: 'response', title: '响应', counter: r.status != null ? String(r.status) : '?',
+          html: `
+            <div class="req-resp-line">
+              <span class="status ${statusClass(r.status)}">${r.status != null ? r.status : '?'}</span>
+              ${r.duration_ms != null ? `<span style="font-size:12px;color:var(--subtext);font-family:monospace;">${r.duration_ms} ms</span>` : ''}
+              <button class="copy-btn" onclick="copyText('response-pre')">复制</button>
+            </div>
+            <div class="sub-label">Headers</div>${headersHtml}
+            <div class="sub-label">Body</div>${bodyHtml}
+          `
+        });
+      }
+
+      if (task.steps && task.steps.length > 0) {
+        sections.push({
+          id: 'steps', title: '执行步骤', counter: task.steps.length,
+          html: `<ol class="step-list">${
+            task.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('')
+          }</ol>`
+        });
+      }
+
+      if (task.final_state) {
+        const fs = task.final_state;
+        const items = Object.keys(fs).map(k => `<tr><td><code>${escapeHtml(k)}</code></td><td><code>${escapeHtml(typeof fs[k] === 'string' ? fs[k] : JSON.stringify(fs[k]))}</code></td></tr>`).join('');
+        sections.push({
+          id: 'final', title: '终态', counter: Object.keys(fs).length,
+          html: `<table class="kv-table"><tbody>${items}</tbody></table>`
+        });
+      }
+
+      if (task.screenshots && task.screenshots.length > 0) {
+        sections.push({
+          id: 'shots', title: '截图', counter: task.screenshots.length,
+          html: `<div class="screenshot-grid">${
+            task.screenshots.map((rel, i) => {
+              const name = getFileName(rel);
+              const stepMatch = name.match(/step[_]?(\d+)/i);
+              const stepNo = stepMatch ? stepMatch[1] : (i + 1);
+              return `<div class="screenshot-item" onclick="openLightbox('${escapeHtml(rel)}')">
+                <img src="${escapeHtml(rel)}" alt="${escapeHtml(name)}" loading="lazy" onerror="this.outerHTML='<div class=&quot;img-fail&quot;>图片加载失败<br>${escapeHtml(name)}</div>'">
+                <div class="caption"><span class="step-no">步骤 ${stepNo}</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(name)}</span></div>
+              </div>`;
+            }).join('')
+          }</div>`
+        });
+      }
+
+      if (task.attachments && task.attachments.length > 0) {
+        sections.push({
+          id: 'attach', title: '附件', counter: task.attachments.length,
+          html: `<div class="attachment-list">${
+            task.attachments.map(a => {
+              const name = a.name || getFileName(a.path || '');
+              const ext = getFileExt(a.path || name);
+              return `<a class="attachment-item" href="${escapeHtml(a.path || '#')}" target="_blank" rel="noopener">
+                <div class="file-icon">${escapeHtml(ext.slice(0, 4))}</div>
+                <div class="file-name">${escapeHtml(name)}</div>
+                ${a.size != null ? `<div class="file-size">${fileSize(a.size)}</div>` : ''}
+              </a>`;
+            }).join('')
+          }</div>`
+        });
+      }
+
+      if (task.error) {
+        sections.push({
+          id: 'error', title: '错误信息', counter: '⚠',
+          html: `<pre class="error-block">${escapeHtml(task.error)}</pre>`
+        });
+      }
+
+      if (sections.length === 0) {
+        bodyEl.innerHTML = '<div class="empty-note">（该任务无详情数据）</div>';
+        return;
+      }
+
+      bodyEl.innerHTML = sections.map((s, i) => `
+        <div class="section" data-section-id="${s.id}">
+          <div class="section-head" onclick="toggleSection(this)">
+            <span class="title">${s.title}</span>
+            <span class="counter">${s.counter}</span>
+            <span class="icon-arrow">▼</span>
+          </div>
+          <div class="section-body">${s.html}</div>
+        </div>
+      `).join('');
+    }
+
+    // ───── 事件 ─────
+    function selectFlow(flowId) {
+      if (state.flowId === flowId) {
+        // 再次点击同一个 flow 保持选中，不重置
+        return;
+      }
+      state.flowId = flowId;
+      state.taskIndex = null;
+      renderFlows();
+      renderTasks();
+      renderDetail();
+    }
+
+    function selectTask(taskIndex) {
+      state.taskIndex = taskIndex;
+      renderTasks();
+      renderDetail();
+    }
+
+    function setFilter(f) {
+      state.filter = f;
+      document.querySelectorAll('.filter-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.filter === f);
+      });
+      renderTasks();
+    }
+
+    function toggleSection(headEl) {
+      headEl.parentElement.classList.toggle('collapsed');
+    }
+
+    function openLightbox(src) {
+      document.getElementById('lightbox-img').src = src;
+      document.getElementById('lightbox').classList.add('open');
+    }
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.remove('open');
+    }
+
+    function copyText(preId) {
+      const el = document.getElementById(preId);
+      if (!el) return;
+      const text = el.textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+          const btn = el.parentElement.querySelector('.copy-btn');
+          if (btn) {
+            const orig = btn.textContent;
+            btn.textContent = '已复制';
+            setTimeout(() => btn.textContent = orig, 1200);
+          }
+        });
+      }
+    }
+
+    // ───── 键盘 ─────
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeLightbox(); return; }
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      const flow = (BATCH.flows || []).find(f => f.flow_id === state.flowId);
+      if (!flow) return;
+      const visibleTasks = (flow.tasks || []).filter(t => state.filter === 'all' || (t.status || 'pending') === state.filter);
+      if (visibleTasks.length === 0) return;
+      const curIdx = visibleTasks.findIndex(t => t.task_index === state.taskIndex);
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        const next = visibleTasks[Math.min(curIdx + 1, visibleTasks.length - 1)];
+        if (next) selectTask(next.task_index);
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        const prev = visibleTasks[Math.max(curIdx - 1, 0)];
+        if (prev) selectTask(prev.task_index);
+      }
+    });
+
+    // ───── 初始化 ─────
+    document.querySelectorAll('.filter-chip').forEach(c => {
+      c.addEventListener('click', () => setFilter(c.dataset.filter));
+    });
+
+    renderFlows();
+    if (BATCH.flows && BATCH.flows.length > 0) {
+      state.flowId = BATCH.flows[0].flow_id;
+      renderFlows();
+      renderTasks();
+    }
+    renderDetail();
+  </script>
+</body>
+</html>

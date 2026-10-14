@@ -1,0 +1,22 @@
+agentCode: '10'
+createdAt: '2026-06-10T18:29:12.945028'
+desc: ''
+environmentKey: default
+executionStrategy: serial
+flows:
+# - sourceFlowFile: 8b6030cb-cdc1-47cf-b9dd-96e9726dfddc.yaml
+#   sourceFlowId: 8b6030cb-cdc1-47cf-b9dd-96e9726dfddc
+#   sourceFlowName: 登录到首页再到个人中心XXXXXX
+# - sourceFlowFile: 8b6030cb-cdc1-47cf-b9dd-96e9726dfddc.yaml
+#   sourceFlowId: 8b6030cb-cdc1-47cf-b9dd-96e9726dfddc
+#   sourceFlowName: 登录到首页再到个人中心YYYYYY
+- sourceFlowFile: e70839f9097e4474bde8a10889cca273.yaml
+  sourceFlowId: e70839f9097e4474bde8a10889cca273
+  sourceFlowName: api+webZZZZZZZZZ
+id: plan-20260610182912
+name: 核心回归测试
+notification:
+  content: ''
+schedule:
+  cron: ''
+updatedAt: '2026-07-10T23:42:12.914361'

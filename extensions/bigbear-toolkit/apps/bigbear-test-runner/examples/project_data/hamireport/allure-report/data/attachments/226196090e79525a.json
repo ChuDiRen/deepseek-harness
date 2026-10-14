@@ -1,0 +1,5 @@
+{
+  "status": "FAIL",
+  "reason": "无法成功执行 API 请求：curl 在本环境返回 HTTP_STATUS:000（连接失败），且 Bash 工具对内联脚本（python -c / node -e）的引号转义处理存在缺陷，导致 var/let/const 关键字及带等号的语句无法正确传入解释器，未能完成对登录接口的实际调用与断言验证",
+  "outputs": {}
+}

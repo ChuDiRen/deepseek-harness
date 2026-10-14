@@ -1,0 +1,38 @@
+case_id: 7f3e2a1b9c8d4e5f6a7b8c9d0e1f2a3b
+case_type: api
+case_priority: P0
+case_title: 正常登录-有效账号密码登录成功
+case_precondition: 系统已存在有效账号 {{ 正确账号 }}，对应正确密码 {{ 正确密码 }}
+case_content:
+  request:
+    url: '{{ URL }}/user/login'
+    method: POST
+    headers:
+    - name: x-requested-with
+      value: XMLHttpRequest
+      desc: Ajax 标识
+    - name: accept
+      value: application/json, text/javascript, */*; q=0.01
+      desc: 客户端期望 JSON 格式
+    - name: content-type
+      value: application/x-www-form-urlencoded; charset=UTF-8
+      desc: 请求体格式：表单数据
+    urlParams:
+    - name: 无
+      value: 无
+      desc: 无URL参数
+    bodyParams:
+    - name: username
+      value: '{{ 正确账号 }}'
+      desc: 11 位手机号格式
+    - name: password
+      value: '{{ 正确密码 }}'
+      desc: 6 位字符密码
+  expected:
+  - 响应状态码：200
+  - 响应格式：application/json
+  - 响应 code 等于 "200"
+  - 响应 msg 包含"SUCCESS"
+  - '响应 data.token 存在（JSONPath: `$.data.token`）'
+  - 响应 data.token 应为非空字符串
+updated_at: '2026-06-10 22:07:52'

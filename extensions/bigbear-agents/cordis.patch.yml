@@ -1,0 +1,5 @@
+# The dsh-bigbear-agents bundle patch: one host row that registers the three
+# bigbear agent presets through dsh-agent-preset-registry at activation.
+- insert:
+    - id: bigbear-agents
+      name: dsh-bigbear-agents

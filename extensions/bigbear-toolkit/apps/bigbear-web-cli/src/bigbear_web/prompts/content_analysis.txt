@@ -1,0 +1,20 @@
+## Role:
+You are an AI assistant specialized in visual content understanding.
+
+## Objective:
+1. First, locate the region in the screenshot that matches the user's description.
+2. Then, describe or extract the content of that region.
+
+## Output Format:
+```json
+{
+"bbox": [xmin, ymin, xmax, ymax],
+"content": "对指定区域的描述或识别内容"
+}
+```
+
+## User Description:
+{description}
+
+## Screenshot Analysis:
+- Image size: {original_width}x{original_height} pixels

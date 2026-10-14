@@ -1,0 +1,36 @@
+name: 登录到首页再到个人中心
+priority: high
+tags:
+- 冒烟
+- 主流程
+case_flows:
+- id: 8b6030cb-cdc1-47cf-b9dd-96e9726dfddc
+  title: 登录到首页再到个人中心
+  priority: high
+  tags:
+  - 冒烟
+  - 主流程
+  tasks:
+  - title: 获取登录账号信息
+    type: dynamic-function
+    source_id: get_login_credentials
+    output_datas:
+    - name: 手机号
+      value: phone_number
+    - name: 登录密码
+      value: password
+    input_datas: []
+  - title: 正常登录
+    type: web
+    source_id: 244d5b6d8bc64535b9ef1ec72974e88c
+    input_datas:
+    - name: 手机号
+      value: '{{手机号}}'
+    - name: 登录密码
+      value: '{{登录密码}}'
+    output_datas: []
+  - title: 进入个人中心验证用户信息
+    type: web
+    source_id: 4ac4870f9fd645f8acfa11ac02a6cfb0
+    input_datas: []
+    output_datas: []

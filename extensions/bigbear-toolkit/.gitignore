@@ -1,0 +1,6 @@
+# 真实密钥与本地产物不入库：部署时从脱敏 .env.example 复制为 .env 再填 key
+.env
+**/user_data/
+**/__pycache__/
+**/AI-信息采集/
+*.pyc

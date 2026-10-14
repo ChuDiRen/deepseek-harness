@@ -1,0 +1,13 @@
+case_id: 9c771cc8f1c94f13bdee1a32dbd3dd2c
+case_type: web
+case_priority: P1
+case_title: 顶部 Logo 跳转-正常点击
+case_precondition: null
+case_content:
+  steps:
+  - 鼠标移动到页面顶部"读书屋"Logo 图片
+  - 点击"读书屋"Logo 链接
+  expected:
+  - 页面正常渲染首页内容
+  - 顶部导航、主导航、底部链接、版权信息均完整可见
+updated_at: '2026-06-10 22:16:43'

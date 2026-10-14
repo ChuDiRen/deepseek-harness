@@ -1,0 +1,16 @@
+case_id: 4ac4870f9fd645f8acfa11ac02a6cfb0
+case_type: web
+case_priority: P0
+case_title: 用户信息展示-登录用户基本信息正确渲染
+case_precondition: 已登录态，具备正常网络，个人中心专属区域可见
+case_content:
+  steps:
+  - 在已登录态下，访问 http://novel.hctestedu.com/user/userinfo.html
+  - 等待页面加载完成
+  - 查看个人中心专属区域内的头像、昵称、账户余额展示
+  expected:
+  - 头像区域显示当前登录用户的头像图片，加载正常、无破图
+  - 昵称段落展示当前登录用户昵称文本
+  - 账户余额正确展示
+  - 侧边栏各导航项可见（个人中心/我的书架/我的书评/我的反馈/账号设置）
+updated_at: '2026-07-10 15:36:00'

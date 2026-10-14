@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>bigbear-device-record</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">bigbear-device-record</span>
+    <span class="status" id="conn-status">●  未连接</span>
+    <span class="device-info" id="device-info">—</span>
+  </header>
+
+  <main class="layout">
+    <section class="viewer" id="viewer">
+      <img id="frame" alt="设备画面" />
+      <div class="placeholder" id="placeholder">等待设备画面...</div>
+    </section>
+
+    <aside class="panel">
+      <div class="group">
+        <label class="lbl">模式</label>
+        <div class="seg">
+          <button id="mode-live" class="seg-btn active">实时投屏</button>
+          <button id="mode-snap" class="seg-btn">按需截图</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <label class="lbl">帧率</label>
+        <div class="fps-row">
+          <button id="fps-minus" class="btn-icon">−</button>
+          <span id="fps-val">2</span>
+          <button id="fps-plus" class="btn-icon">+</button>
+        </div>
+      </div>
+
+      <hr/>
+
+      <div class="group">
+        <label class="lbl">Module</label>
+        <input id="in-module" type="text" placeholder="如 1-2-3" />
+      </div>
+      <div class="group">
+        <label class="lbl">Func</label>
+        <input id="in-func" type="text" placeholder="功能点" />
+      </div>
+      <div class="group">
+        <label class="lbl">Desc</label>
+        <input id="in-desc" type="text" placeholder="描述" />
+      </div>
+
+      <button id="btn-snap" class="btn-primary">📸 SNAP</button>
+
+      <div class="meta">
+        <span>已采: <b id="count">0</b> 张</span>
+      </div>
+
+      <div class="group check">
+        <input id="chk-vision" type="checkbox" />
+        <label for="chk-vision">启用 Vision AI 分析</label>
+      </div>
+
+      <div class="actions">
+        <a id="open-output" class="btn-link" href="/api/output/tree" target="_blank">📁 输出目录</a>
+        <button id="btn-refresh" class="btn-link">⟳ 重新连接</button>
+      </div>
+
+      <div class="logs" id="logs"></div>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

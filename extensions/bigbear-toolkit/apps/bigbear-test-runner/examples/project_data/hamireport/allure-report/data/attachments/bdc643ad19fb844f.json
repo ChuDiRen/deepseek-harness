@@ -1,0 +1,17 @@
+{
+  "DB_HOST": "localhost",
+  "DB_NAME": "novel_plus",
+  "DB_PASSWORD": "root",
+  "DB_PORT": "3306",
+  "DB_USER": "root",
+  "aaaaa": "测试一下环境变量",
+  "api_project_url": "http://novel.hctestedu.com/",
+  "web_project_url": "x",
+  "TEST_PHONE_NUMBER": "13800138001",
+  "TEST_PASSWORD": "123456",
+  "用户名": "admin",
+  "密码": "123456",
+  "URL": "http://novel.hctestedu.com",
+  "正确账号": "13800138001",
+  "正确密码": "123456"
+}

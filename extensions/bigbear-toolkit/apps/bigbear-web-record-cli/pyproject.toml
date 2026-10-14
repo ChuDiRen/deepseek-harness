@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bigbear-web-record"
+version = "1.0.0"
+description = "华测WEB界面采集工具 - 通过 Playwright CDP 录制浏览器网络请求生成文档"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "playwright==1.57.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+bigbear-web-record = "bigbear_web_record.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+]
+vision = [
+    "openai>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

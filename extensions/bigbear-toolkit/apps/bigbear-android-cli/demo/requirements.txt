@@ -1,0 +1,8 @@
+# Demo 用到的依赖（精简版）
+openai>=1.3.0
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+loguru>=0.7.0
+
+# 注意：不需要 playwright、不需要 requests
+# adb 通过 subprocess 直接执行（依赖系统装的 adb）

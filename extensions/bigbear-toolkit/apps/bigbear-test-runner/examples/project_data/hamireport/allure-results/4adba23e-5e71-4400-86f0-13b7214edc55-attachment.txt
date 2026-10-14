@@ -1,0 +1,86 @@
+# 自动化测试 Task
+
+- plan: `plan-20260610182912`
+- flow: `9b885ac2-a338-45c7-95ee-ed0e3fb31ae5` / 用户登录流程
+- task: `1` / 正常登录-有效账号密码登录成功
+
+## Input
+以下 JSON 已由执行器完成 Jinja2 渲染,直接使用,不要再次解析模板:
+```json
+{
+  "URL": "http://novel.hctestedu.com",
+  "正确账号": "13800138001",
+  "正确密码": "123456"
+}
+```
+
+## Detail
+- type: `api`
+- source_id: `7f3e2a1b9c8d4e5f6a7b8c9d0e1f2a3b`
+- source_path: `D:\Code\aiqe_class\apps\runner\bigbear-ai-test-runner-6.0\bigbear-ai-test-runner-6.0\examples\project_data\AI-自动化测试用例\api\20260610-181008\7f3e2a1b9c8d4e5f6a7b8c9d0e1f2a3b.yaml`
+
+前置条件: 系统已存在有效账号 {{ 正确账号 }}，对应正确密码 {{ 正确密码 }}
+请求信息:
+{
+  "url": "{{ URL }}/user/login",
+  "method": "POST",
+  "headers": [
+    {
+      "name": "x-requested-with",
+      "value": "XMLHttpRequest",
+      "desc": "Ajax 标识"
+    },
+    {
+      "name": "accept",
+      "value": "application/json, text/javascript, */*; q=0.01",
+      "desc": "客户端期望 JSON 格式"
+    },
+    {
+      "name": "content-type",
+      "value": "application/x-www-form-urlencoded; charset=UTF-8",
+      "desc": "请求体格式：表单数据"
+    }
+  ],
+  "urlParams": [
+    {
+      "name": "无",
+      "value": "无",
+      "desc": "无URL参数"
+    }
+  ],
+  "bodyParams": [
+    {
+      "name": "username",
+      "value": "{{ 正确账号 }}",
+      "desc": "11 位手机号格式"
+    },
+    {
+      "name": "password",
+      "value": "{{ 正确密码 }}",
+      "desc": "6 位字符密码"
+    }
+  ]
+}
+预期结果:
+- 响应状态码：200
+- 响应格式：application/json
+- 响应 code 等于 "200"
+- 响应 msg 包含"SUCCESS"
+- 响应 data.token 存在（JSONPath: `$.data.token`）
+- 响应 data.token 应为非空字符串
+
+## Output
+该 Task 没有输出变量,outputs 必须是空对象。
+
+最后一行必须是以下格式的单行 JSON,不要放进 Markdown 代码块:
+`[task-result] {json}`
+其中 status 只能是 PASS 或 FAIL,outputs 必须是 JSON object。
+示例:
+[task-result] {"status":"PASS","reason":"执行成功","outputs":{}}
+
+## Browser Session
+每条 playwright-cli 命令必须带 `-s=aiqe-1bb6f44b-0`。
+当前 Task 完成后不要关闭浏览器,后续 Task 会继续使用该会话。
+
+## 测试设备
+- `chrome001`: adb_serial=None, cdp_port=9222, cdp_url=None, hdc_serial=None, ios_udid=None, ios_wda_port=None, monitor_index=None, type='browser'

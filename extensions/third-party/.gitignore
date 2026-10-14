@@ -1,0 +1,3 @@
+# 构建产物与依赖不入库：部署由 pnpm install 重建，sourcemap 可由 src 现场重建
+node_modules/
+*.map

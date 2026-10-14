@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bigbear-android-cli"
+version = "1.0.0"
+description = "AI-powered Android device control via adb commands"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "loguru>=0.7.0",
+    "openai>=1.3.0",
+    "Pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+    "pyperclip>=1.8.0",
+]
+
+[project.scripts]
+bigbear-android-cli = "bigbear_android.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+bigbear_android = ["prompts/*.txt"]

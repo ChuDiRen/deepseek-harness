@@ -1,0 +1,209 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { createDefinition, createManualRun } from '../src/domain.ts'
+import { executeAutomationRun, modelSelectionForRun, unattendedToolGuardReason } from '../src/executor.ts'
+
+class TrackingAbortSignal {
+  aborted = false
+  readonly listeners = new Set<EventListenerOrEventListenerObject>()
+  added = 0
+  removed = 0
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject | null): void {
+    if (type !== 'abort' || listener === null) return
+    this.added += 1
+    this.listeners.add(listener)
+  }
+
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null): void {
+    if (type !== 'abort' || listener === null || !this.listeners.delete(listener)) return
+    this.removed += 1
+  }
+}
+
+function executorFixture(options: { readonly hangUntilCancelled?: boolean; readonly snapshotOnly?: boolean } = {}) {
+  const definition = createDefinition({
+    id: 'automation-executor',
+    name: 'Executor test',
+    prompt: 'Return one bounded result.',
+    schedule: { kind: 'daily', time: '09:00', timeZone: 'UTC' },
+    workspaceId: 'workspace-1',
+    cwd: '/workspace/repo',
+    agentPreset: 'standard',
+    createdBy: { kind: 'web', sessionId: 'session-source' },
+    now: '2026-08-13T00:00:00Z',
+  })
+  const run = createManualRun(definition, '2026-08-13T00:05:00Z', 'executor-test')
+  let followedUp = false
+  let cancelled = false
+  let settleIdle = () => {}
+  const hangingIdle = new Promise<void>(resolve => { settleIdle = resolve })
+  const session = {
+    seq: 0,
+    events: [] as Array<{ seq: number; type: string; data: Record<string, unknown> }>,
+    append: (type: string, data: Record<string, unknown>) => {
+      session.events.push({ seq: session.seq, type, data })
+      session.seq += 1
+    },
+  }
+  const agent = {
+    session: options.snapshotOnly ? {
+      get seq() { return session.seq },
+      append: session.append,
+      snapshotEvents(fromSeq = 0) { return Object.freeze(session.events.filter(event => event.seq >= fromSeq)) },
+    } : session,
+    whenIdle: () => {
+      if (!followedUp || !options.hangUntilCancelled || cancelled) return Promise.resolve()
+      return hangingIdle
+    },
+    followup: () => {
+      followedUp = true
+      if (options.hangUntilCancelled) return
+      session.events.push(
+        { seq: session.seq++, type: 'turn/start', data: {} },
+        { seq: session.seq++, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'done' }] } } },
+        { seq: session.seq++, type: 'turn/end', data: { reason: { kind: 'completed' } } },
+      )
+    },
+    cancel: () => {
+      cancelled = true
+      settleIdle()
+    },
+  }
+  const workspace = {
+    path: '/workspace/repo',
+    status: async () => 'ok' as const,
+    attachSession: async () => {},
+  }
+  const ctx = {
+    workspaceRegistry: { get: () => workspace },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'provider', model: 'model' }) },
+    agentPresets: { mount: async () => {} },
+    agents: {
+      withoutInitiator: (operation: () => unknown) => operation(),
+      create: async (input: { setup: (ctx: unknown) => Promise<void> }) => {
+        await input.setup({ agent, tools: { guard: () => {} } })
+        return { agent, dispose: async () => {} }
+      },
+    },
+    sessions: { flush: async () => true },
+  }
+  return { ctx, definition, run, session, wasCancelled: () => cancelled }
+}
+
+test('unattended tool guard blocks interaction, delegation, and background process escape', () => {
+  assert.match(unattendedToolGuardReason('ask_user_question', {}) ?? '', /allowlist/)
+  assert.match(unattendedToolGuardReason('subagent', {}) ?? '', /allowlist/)
+  assert.match(unattendedToolGuardReason('cordis_mount', {}) ?? '', /allowlist/)
+  assert.match(unattendedToolGuardReason('automation_create', {}) ?? '', /allowlist/)
+  assert.match(unattendedToolGuardReason('bash', { run_in_background: true }) ?? '', /Background/)
+})
+
+test('unattended tool guard preserves foreground coding and read tools', () => {
+  assert.equal(unattendedToolGuardReason('read', { path: 'README.md' }), undefined)
+  assert.equal(unattendedToolGuardReason('edit', { path: 'README.md' }), undefined)
+  assert.equal(unattendedToolGuardReason('bash', { command: 'pnpm test' }), undefined)
+  assert.equal(unattendedToolGuardReason('web_search', { query: 'package docs' }), undefined)
+  assert.match(unattendedToolGuardReason('third_party_side_effect', {}) ?? '', /allowlist/)
+})
+
+test('run model selection keeps live defaults coherent and never leaks their effort into a pinned model', () => {
+  const fixture = executorFixture()
+  const fallback = { provider: 'global-provider', model: 'global-model', reasoningEffort: 'global-effort' }
+  assert.equal(modelSelectionForRun(fixture.run.targetSnapshot, fallback), fallback)
+
+  assert.deepEqual(modelSelectionForRun({
+    ...fixture.run.targetSnapshot,
+    provider: 'pinned-provider',
+    model: 'pinned-model',
+    reasoningEffort: null,
+  }, fallback), {
+    provider: 'pinned-provider',
+    model: 'pinned-model',
+  })
+  assert.deepEqual(modelSelectionForRun({
+    ...fixture.run.targetSnapshot,
+    provider: 'pinned-provider',
+    model: 'pinned-model',
+    reasoningEffort: 'adapter-owned-effort',
+  }, fallback), {
+    provider: 'pinned-provider',
+    model: 'pinned-model',
+    reasoningEffort: 'adapter-owned-effort',
+  })
+})
+
+test('executor removes its abort listener after a normally completed run', async () => {
+  const fixture = executorFixture()
+  const signal = new TrackingAbortSignal()
+  const completion = await executeAutomationRun(
+    fixture.ctx as never,
+    fixture.definition,
+    fixture.run,
+    { runTimeoutMs: 1_000, sessionId: 'dsh-automation-session-complete', signal: signal as unknown as AbortSignal },
+  )
+
+  assert.equal(completion.status, 'succeeded')
+  assert.equal(signal.added, 1)
+  assert.equal(signal.removed, 1)
+  assert.equal(signal.listeners.size, 0)
+})
+
+test('executor stamps the automation name as the run Session title', async () => {
+  const fixture = executorFixture()
+  const completion = await executeAutomationRun(
+    fixture.ctx as never,
+    fixture.definition,
+    fixture.run,
+    { runTimeoutMs: 1_000, sessionId: 'dsh-automation-session-title' },
+  )
+
+  assert.equal(completion.status, 'succeeded')
+  const titleEvents = fixture.session.events.filter(event => event.type === 'session/title')
+  assert.equal(titleEvents.length, 1)
+  assert.deepEqual(titleEvents[0]?.data, {
+    title: 'Executor test',
+    messageSeqs: [],
+    source: { kind: 'user' },
+  })
+})
+
+test('executor timeout cancels a stuck Agent, settles, and removes its abort listener', async () => {
+  const fixture = executorFixture({ hangUntilCancelled: true })
+  const signal = new TrackingAbortSignal()
+  const completion = await Promise.race([
+    executeAutomationRun(
+      fixture.ctx as never,
+      fixture.definition,
+      fixture.run,
+      { runTimeoutMs: 5, sessionId: 'dsh-automation-session-timeout', signal: signal as unknown as AbortSignal },
+    ),
+    new Promise<never>((_resolve, reject) => {
+      setTimeout(() => reject(new Error('executor timeout path did not settle')), 250)
+    }),
+  ])
+
+  assert.equal(completion.status, 'failed')
+  assert.equal(completion.error?.code, 'timeout')
+  assert.equal(fixture.wasCancelled(), true)
+  assert.equal(signal.added, 1)
+  assert.equal(signal.removed, 1)
+  assert.equal(signal.listeners.size, 0)
+})
+
+test('executor reads completed turns on snapshot-only DSH Sessions', async () => {
+  const fixture = executorFixture({ snapshotOnly: true })
+  const completion = await executeAutomationRun(fixture.ctx as never, fixture.definition, fixture.run, {
+    runTimeoutMs: 1_000, sessionId: 'dsh-automation-session-snapshot',
+  })
+  assert.equal(completion.status, 'succeeded')
+  assert.equal(completion.summary, 'done')
+})
+
+test('snapshot-only Sessions retain timeout classification', async () => {
+  const fixture = executorFixture({ snapshotOnly: true, hangUntilCancelled: true })
+  const completion = await executeAutomationRun(fixture.ctx as never, fixture.definition, fixture.run, {
+    runTimeoutMs: 5, sessionId: 'dsh-automation-session-snapshot-timeout',
+  })
+  assert.equal(completion.error?.code, 'timeout')
+})

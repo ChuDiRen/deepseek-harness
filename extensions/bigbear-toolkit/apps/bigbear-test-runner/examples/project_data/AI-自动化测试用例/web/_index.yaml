@@ -1,0 +1,28 @@
+4063ef1d6171481db203b888a5b97837:
+  case_id: 4063ef1d6171481db203b888a5b97837
+  case_title: 读书屋测试用例
+  case_path: 首页\4063ef1d6171481db203b888a5b97837.yaml
+  case_type: web
+  case_priority: P1
+  updated_at: '2026-06-08 01:36:18'
+9c771cc8f1c94f13bdee1a32dbd3dd2c:
+  case_id: 9c771cc8f1c94f13bdee1a32dbd3dd2c
+  case_title: 顶部 Logo 跳转-正常点击
+  case_path: 首页\9c771cc8f1c94f13bdee1a32dbd3dd2c.yaml
+  case_type: web
+  case_priority: P1
+  updated_at: '2026-06-10 22:16:43'
+244d5b6d8bc64535b9ef1ec72974e88c:
+  case_id: 244d5b6d8bc64535b9ef1ec72974e88c
+  case_title: 登录表单-正常登录
+  case_path: 登录\244d5b6d8bc64535b9ef1ec72974e88c.yaml
+  case_type: web
+  case_priority: P0
+  updated_at: '2026-07-10 15:36:00'
+4ac4870f9fd645f8acfa11ac02a6cfb0:
+  case_id: 4ac4870f9fd645f8acfa11ac02a6cfb0
+  case_title: 用户信息展示-登录用户基本信息正确渲染
+  case_path: 个人中心\4ac4870f9fd645f8acfa11ac02a6cfb0.yaml
+  case_type: web
+  case_priority: P0
+  updated_at: '2026-07-10 15:36:00'

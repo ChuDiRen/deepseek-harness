@@ -1,0 +1,30 @@
+DB_HOST:
+  description: ''
+  value: localhost
+DB_NAME:
+  description: ''
+  value: novel_plus
+DB_PASSWORD:
+  description: ''
+  value: root
+DB_PORT:
+  description: ''
+  value: '3306'
+DB_USER:
+  description: ''
+  value: root
+aaaaa:
+  description: ''
+  value: 测试一下环境变量
+api_project_url:
+  description: 接口项目服务器url
+  value: http://novel.hctestedu.com/
+web_project_url:
+  description: WEB项目地址
+  value: x
+TEST_PHONE_NUMBER:
+  description: 测试登录手机号
+  value: '13800138001'
+TEST_PASSWORD:
+  description: 测试登录密码
+  value: '123456'

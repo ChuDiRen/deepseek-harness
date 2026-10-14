@@ -1,0 +1,8 @@
+type: browser
+cdp_port: 9222
+cdp_url: null
+monitor_index: null
+adb_serial: null
+hdc_serial: null
+ios_udid: null
+ios_wda_port: null

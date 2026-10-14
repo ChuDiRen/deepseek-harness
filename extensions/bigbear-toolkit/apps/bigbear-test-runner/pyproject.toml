@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bigbear-test-runner"
+version = "0.1.0"
+description = "华测 AIQE agent 调度版测试运行 CLI - 基于 agentscope 的骨架"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "agentscope>=0.1.0",
+    "allure-pytest>=2.13.0",
+    "Jinja2>=3.1.0",
+    "pytest>=7.0.0",
+    "pytest-xdist>=3.0.0",
+    "python-dotenv>=1.0.0",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+bigbear-test-runner = "bigbear_test_runner.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+bigbear_test_runner = []

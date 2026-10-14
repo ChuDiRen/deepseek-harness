@@ -1,0 +1,2 @@
+"Status","Start Time","Stop Time","Duration in ms","Parent Suite","Suite","Sub Suite","Test Class","Test Method","Name","Description"
+"failed","Fri Sep 11 00:37:59 CST 2026","Fri Sep 11 00:39:36 CST 2026","97126","核心回归测试","plan-20260610182912","","","","用户登录流程",""

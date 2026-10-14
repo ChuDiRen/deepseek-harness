@@ -1,0 +1,14 @@
+case_id: 4063ef1d6171481db203b888a5b97837
+case_type: web
+case_priority: P1
+case_title: 读书屋测试用例
+case_precondition: null
+case_content:
+  steps:
+  - 打开网址 http://novel.hctestedu.com
+  - 搜索“{{小说名称}}”
+  - 点击搜索结果中的第一本小说
+  expected:
+  - 页面展示的是关于 {{小说名称}} 的介绍
+  - 界面有立即阅读按钮
+updated_at: '2026-06-08 01:36:18'

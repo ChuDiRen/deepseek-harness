@@ -1,0 +1,29 @@
+{
+  "name": "dsh-bigbear-agents",
+  "description": "Three bigbear-toolkit automation agent presets for DSH: Web UI chain, API chain, and Android chain",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "personas",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.0-rc.1"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

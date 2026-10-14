@@ -1,0 +1,38 @@
+name: 用户登录流程
+case_flows:
+- id: 9b885ac2-a338-45c7-95ee-ed0e3fb31ae5
+  title: 用户登录流程
+  priority: medium
+  tags:
+  - 冒烟
+  - 主流程
+  tasks:
+  - title: 获取用户登录信息
+    type: dynamic-function
+    source_id: get_login_info
+    input_datas: []
+    output_datas:
+    - name: 用户名
+      value: username
+    - name: 密码
+      value: password
+  - title: 正常登录-有效账号密码登录成功
+    type: api
+    source_id: 7f3e2a1b9c8d4e5f6a7b8c9d0e1f2a3b
+    input_datas:
+    - name: URL
+      value: http://novel.hctestedu.com
+    - name: 正确账号
+      value: '13800138001'
+    - name: 正确密码
+      value: '123456'
+    output_datas: []
+  - title: 顶部 Logo 跳转-正常点击
+    type: web
+    source_id: 9c771cc8f1c94f13bdee1a32dbd3dd2c
+    input_datas: []
+    output_datas: []
+priority: medium
+tags:
+- 冒烟
+- 主流程

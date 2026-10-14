@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Test / tooling cache
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# playwright-cli 运行时产物(每次跑命令生成 page-*.yml)
+.playwright-cli/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

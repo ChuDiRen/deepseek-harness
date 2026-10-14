@@ -1,0 +1,31 @@
+# 自动化测试 Task
+
+- plan: `plan-20260610182912`
+- flow: `9b885ac2-a338-45c7-95ee-ed0e3fb31ae5` / 用户登录流程
+- task: `0` / 获取用户登录信息
+
+## Input
+以下 JSON 已由执行器完成 Jinja2 渲染,直接使用,不要再次解析模板:
+```json
+{}
+```
+
+## Detail
+- type: `dynamic-function`
+- source_id: `get_login_info`
+- source_path: `D:\Code\aiqe_class\apps\runner\bigbear-ai-test-runner-6.0\bigbear-ai-test-runner-6.0\examples\project_data\AI-动态函数管理\通用工具\get_login_info.py`
+- 调用 `run_dynamic_function` 工具。
+- function_code 固定为 `get_login_info`。
+- context 传入本消息的 input JSON。
+- 禁止通过 Bash、Python 命令或临时文件执行动态函数。
+
+## Output
+必须在 outputs 中返回以下键:
+- `username`:写入 Flow context 的变量 `用户名`
+- `password`:写入 Flow context 的变量 `密码`
+
+最后一行必须是以下格式的单行 JSON,不要放进 Markdown 代码块:
+`[task-result] {json}`
+其中 status 只能是 PASS 或 FAIL,outputs 必须是 JSON object。
+示例:
+[task-result] {"status":"PASS","reason":"执行成功","outputs":{"username":"<username>","password":"<password>"}}

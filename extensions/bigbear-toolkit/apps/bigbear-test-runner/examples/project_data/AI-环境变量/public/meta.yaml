@@ -1,0 +1,4 @@
+default: false
+enabled: true
+name: 公开课演示
+usage: ''
