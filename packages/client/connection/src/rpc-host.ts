@@ -195,7 +195,15 @@ export class HostConnectionService extends Service implements HostConnectionHand
       },
     }
     return owner.effect(
-      () => owner.webServer.register(route),
+      () => {
+        // The context proxy rejects a `webServer` property read outside this
+        // service's declared inject; `get` reads without that requirement.
+        const webServer = owner.get('webServer')
+        if (webServer === undefined) {
+          throw new Error(`connection: cannot mount ${channel} because the webServer service is not active; declare webServer in the caller's inject before registering channels`)
+        }
+        return webServer.register(route)
+      },
       `client-connection: ${channel} rpc channel`,
     )
   }
