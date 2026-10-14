@@ -88,7 +88,9 @@ export type EnvAssignment = readonly [name: string, value: string]
 /**
  * Derive the environment injection from the config. Every group receives the
  * shared gateway key/URL, so one gateway fills every CLI; values stay absent
- * when the config leaves them unset.
+ * when the config leaves them unset. Names mirror exactly what the toolkit
+ * CLIs read (vision analysis is `WEB_VISION_*` for record CLIs and
+ * `DEVICE_VISION_*` for the device CLI — never a bare `VISION_*`).
  * @param config - plain extension config.
  * @returns assignments sorted by variable name.
  */
@@ -97,7 +99,6 @@ export function deriveEnv(config: BigbearConfig): EnvAssignment[] {
     ['AGENT_AI', config.runnerModel],
     ['WEB_AUTOMATION_AI', config.webModel],
     ['ANDROID_AI', config.androidModel],
-    ['VISION', config.visionModel],
   ]
   const assignments: EnvAssignment[] = []
   if (config.toolkitDir !== undefined) {
@@ -107,6 +108,11 @@ export function deriveEnv(config: BigbearConfig): EnvAssignment[] {
     if (config.gatewayApiKey !== undefined) assignments.push([`${prefix}_API_KEY`, config.gatewayApiKey])
     if (config.gatewayBaseUrl !== undefined) assignments.push([`${prefix}_BASE_URL`, config.gatewayBaseUrl])
     if (model !== undefined) assignments.push([`${prefix}_MODEL`, model])
+  }
+  for (const prefix of ['WEB_VISION', 'DEVICE_VISION'] as const) {
+    if (config.gatewayApiKey !== undefined) assignments.push([`${prefix}_API_KEY`, config.gatewayApiKey])
+    if (config.gatewayBaseUrl !== undefined) assignments.push([`${prefix}_BASE_URL`, config.gatewayBaseUrl])
+    if (config.visionModel !== undefined) assignments.push([`${prefix}_MODEL`, config.visionModel])
   }
   return assignments.sort(([left], [right]) => left.localeCompare(right))
 }

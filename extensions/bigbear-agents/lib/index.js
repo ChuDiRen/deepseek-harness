@@ -936,7 +936,9 @@ function plainConfig(config) {
 /**
 * Derive the environment injection from the config. Every group receives the
 * shared gateway key/URL, so one gateway fills every CLI; values stay absent
-* when the config leaves them unset.
+* when the config leaves them unset. Names mirror exactly what the toolkit
+* CLIs read (vision analysis is `WEB_VISION_*` for record CLIs and
+* `DEVICE_VISION_*` for the device CLI — never a bare `VISION_*`).
 * @param config - plain extension config.
 * @returns assignments sorted by variable name.
 */
@@ -944,8 +946,7 @@ function deriveEnv(config) {
 	const groups = [
 		["AGENT_AI", config.runnerModel],
 		["WEB_AUTOMATION_AI", config.webModel],
-		["ANDROID_AI", config.androidModel],
-		["VISION", config.visionModel]
+		["ANDROID_AI", config.androidModel]
 	];
 	const assignments = [];
 	if (config.toolkitDir !== void 0) assignments.push(["BIGBEAR_TOOLKIT_DIR", config.toolkitDir]);
@@ -953,6 +954,11 @@ function deriveEnv(config) {
 		if (config.gatewayApiKey !== void 0) assignments.push([`${prefix}_API_KEY`, config.gatewayApiKey]);
 		if (config.gatewayBaseUrl !== void 0) assignments.push([`${prefix}_BASE_URL`, config.gatewayBaseUrl]);
 		if (model !== void 0) assignments.push([`${prefix}_MODEL`, model]);
+	}
+	for (const prefix of ["WEB_VISION", "DEVICE_VISION"]) {
+		if (config.gatewayApiKey !== void 0) assignments.push([`${prefix}_API_KEY`, config.gatewayApiKey]);
+		if (config.gatewayBaseUrl !== void 0) assignments.push([`${prefix}_BASE_URL`, config.gatewayBaseUrl]);
+		if (config.visionModel !== void 0) assignments.push([`${prefix}_MODEL`, config.visionModel]);
 	}
 	return assignments.sort(([left], [right]) => left.localeCompare(right));
 }
@@ -981,7 +987,7 @@ function deriveEnv(config) {
 /** Loader namespace name for this plugin row. */
 const name = "bigbear-agents";
 /** Required host services. */
-const inject = ["agentPresets"];
+const inject = ["agentPresets", "shellEnv"];
 /** Directory holding one `*.md` persona per preset id. */
 const PERSONAS_DIR = fileURLToPath(new URL("../personas/", import.meta.url));
 /**
@@ -1060,11 +1066,6 @@ function commonPlugins(skillDir) {
 		{
 			id: "tool-jobs",
 			name: "@deepseek-ai/dsh-tool-jobs"
-		},
-		{
-			id: "tool-str-replace-editor",
-			name: "@deepseek-ai/dsh-tool-str-replace-editor",
-			config: { maxOutputChars: 16e3 }
 		},
 		{
 			id: "tool-todo",
@@ -1150,24 +1151,29 @@ function entryListProblem(rows, at = "") {
 	}
 }
 /**
-* Assign the derived gateway environment for the fiber's lifetime. Values the
-* config leaves unset are removed if a previous generation had set them, so a
-* settings-page save that clears a field takes effect on reload. Dependency
-* provisioning stays inside the sandbox: sessions self-provision a
-* workspace-local venv per the persona protocol, never touching host Python.
+* The gateway values reach toolkit CLIs through the `ctx.shellEnv` registry:
+* a per-execution `DSH_BIGBEAR_*` overlay merged after the subprocess scrub,
+* so credential-shaped names survive (an ambient `*_API_KEY` would be stripped
+* as a suspected leaked credential) and no global process state can be rolled
+* back by a later fiber disposal. The toolkit CLIs read the plain names and
+* fall back to these aliases.
+* @param ctx - host Cordis context.
 * @param config - plain extension config.
-* @returns the fiber-scoped teardown.
 */
-function applyEnv(config) {
-	const previous = /* @__PURE__ */ new Map();
-	for (const [envName, value] of deriveEnv(config)) {
-		previous.set(envName, process.env[envName]);
-		process.env[envName] = value;
+function applyEnv(ctx, config) {
+	const variables = {};
+	const resolved = {};
+	for (const [name, value] of deriveEnv(config)) {
+		if (name === "BIGBEAR_TOOLKIT_DIR") continue;
+		const key = `DSH_BIGBEAR_${name}`;
+		variables[key] = { description: `Bigbear toolkit gateway value for ${name}` };
+		resolved[key] = value;
 	}
-	return () => {
-		for (const [envName, prior] of previous) if (prior === void 0) delete process.env[envName];
-		else process.env[envName] = prior;
-	};
+	ctx.shellEnv.register({
+		name: "bigbear-agents",
+		variables,
+		resolve: () => resolved
+	});
 }
 /**
 * Install the environment injection and register every bigbear preset. A
@@ -1178,7 +1184,7 @@ function applyEnv(config) {
 */
 async function apply(ctx, config = {}) {
 	const values = plainConfig(config);
-	ctx.effect(applyEnv(values), "bigbear-agents: gateway environment");
+	applyEnv(ctx, values);
 	const skillDir = await resolveSkillDir(values.toolkitDir);
 	for (const preset of PRESETS) {
 		const personaTemplate = await readFile(join(PERSONAS_DIR, preset.persona), "utf8");

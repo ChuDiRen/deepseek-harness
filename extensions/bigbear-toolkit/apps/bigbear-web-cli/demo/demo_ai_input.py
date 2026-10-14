@@ -63,9 +63,9 @@ def load_config():
     load_dotenv(env_path)
 
     config = {
-        "api_key": os.getenv("WEB_AUTOMATION_AI_API_KEY"),
-        "base_url": os.getenv("WEB_AUTOMATION_AI_BASE_URL"),
-        "model": os.getenv("WEB_AUTOMATION_AI_MODEL"),
+        "api_key": (os.getenv("WEB_AUTOMATION_AI_API_KEY") or os.getenv("DSH_BIGBEAR_WEB_AUTOMATION_AI_API_KEY")),
+        "base_url": (os.getenv("WEB_AUTOMATION_AI_BASE_URL") or os.getenv("DSH_BIGBEAR_WEB_AUTOMATION_AI_BASE_URL")),
+        "model": (os.getenv("WEB_AUTOMATION_AI_MODEL") or os.getenv("DSH_BIGBEAR_WEB_AUTOMATION_AI_MODEL")),
     }
 
     for k, v in config.items():

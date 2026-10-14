@@ -25,9 +25,9 @@ def load_config():
         dotenv.load_dotenv(env_path)
 
     return {
-        "api_key": os.getenv("WEB_AUTOMATION_AI_API_KEY", ""),
-        "base_url": os.getenv("WEB_AUTOMATION_AI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        "model": os.getenv("WEB_AUTOMATION_AI_MODEL", "qwen3.6-flash-2026-04-16"),
+        "api_key": (os.getenv("WEB_AUTOMATION_AI_API_KEY") or os.getenv("DSH_BIGBEAR_WEB_AUTOMATION_AI_API_KEY", "")),
+        "base_url": (os.getenv("WEB_AUTOMATION_AI_BASE_URL") or os.getenv("DSH_BIGBEAR_WEB_AUTOMATION_AI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
+        "model": (os.getenv("WEB_AUTOMATION_AI_MODEL") or os.getenv("DSH_BIGBEAR_WEB_AUTOMATION_AI_MODEL", "qwen3.6-flash-2026-04-16")),
         "user_data_dir": os.getenv("WEB_AUTOMATION_USER_DATA", ""),
     }
 

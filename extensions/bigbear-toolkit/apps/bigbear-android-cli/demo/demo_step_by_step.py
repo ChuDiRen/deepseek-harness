@@ -42,9 +42,9 @@ def load_config():
         raise FileNotFoundError(f"找不到 .env：{env_path}")
     load_dotenv(env_path)
     return {
-        "api_key": os.getenv("ANDROID_AI_API_KEY"),
-        "base_url": os.getenv("ANDROID_AI_BASE_URL"),
-        "model": os.getenv("ANDROID_AI_MODEL"),
+        "api_key": (os.getenv("ANDROID_AI_API_KEY") or os.getenv("DSH_BIGBEAR_ANDROID_AI_API_KEY")),
+        "base_url": (os.getenv("ANDROID_AI_BASE_URL") or os.getenv("DSH_BIGBEAR_ANDROID_AI_BASE_URL")),
+        "model": (os.getenv("ANDROID_AI_MODEL") or os.getenv("DSH_BIGBEAR_ANDROID_AI_MODEL")),
     }
 
 

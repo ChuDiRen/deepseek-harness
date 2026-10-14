@@ -5,3 +5,4 @@
 **/AI-信息采集/
 *.pyc
 .venv/
+*.egg-info/

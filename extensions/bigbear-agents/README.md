@@ -27,10 +27,10 @@ bigbear-agents/
 - 入口：主界面 **插件** 面板 → 基础分组 → **大熊工具箱** 卡片（与
   `ui-settings-shell` 同一 `plugins.item` 槽位契约）。
 - 链路：设置页表单 → config-editor 把覆盖写进 profile 的 `cordis.patch.yml`
-  → loader 热重载本行 → `apply` 恢复旧环境后按新值注入
-  `AGENT_AI_*` / `WEB_AUTOMATION_AI_*` / `ANDROID_AI_*` / `VISION_*` 与
-  `BIGBEAR_TOOLKIT_DIR` → bash/pwsh 子进程继承，工具箱 CLI 优先读注入值
-  （python-dotenv `override=False`），项目 `.env` 只作回退。
+  → loader 热重载本行 → `apply` 以 `ctx.shellEnv` 贡献者注入 `DSH_BIGBEAR_*`
+  （每次 shell 调用合并，置于凭据清洗之后——含 KEY 的普通环境变量会被
+  `scrubbedParentEnv` 判为疑似泄漏凭据剥掉，ambient 通道走不通）
+  → 工具箱 CLI 读原名、回退 `DSH_BIGBEAR_*` 别名，项目 `.env` 只作回退。
 - 所有字段 `.volatile()`：host 侧 settings 服务只投影 volatile 字段为可编辑
   表单，普通字段不可见。
 - 注意：profile 补丁里的值（含 API key）是本机明文，等同原来 `.env` 的安全

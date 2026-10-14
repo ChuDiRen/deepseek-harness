@@ -28,7 +28,7 @@ import { Config, deriveEnv, plainConfig, type BigbearConfig, type RawBigbearConf
 export const name = 'bigbear-agents'
 
 /** Required host services. */
-export const inject = ['agentPresets']
+export const inject = ['agentPresets', 'shellEnv']
 
 export { Config }
 
@@ -38,6 +38,13 @@ interface HostContext {
   effect(dispose: () => unknown, name: string): void
   agentPresets: {
     register(definition: PresetDefinition): Promise<() => Promise<void>>
+  }
+  shellEnv: {
+    register(contributor: {
+      name: string
+      variables: Readonly<Record<string, { description: string }>>
+      resolve(execution: unknown): Readonly<Record<string, string>>
+    }): () => void
   }
   logger: {
     info(formatter: string, ...args: readonly unknown[]): void
@@ -157,11 +164,6 @@ function commonPlugins(skillDir: string): PresetRow[] {
     { id: 'tool-skill', name: '@deepseek-ai/dsh-tool-skill' },
     { id: 'tool-jobs', name: '@deepseek-ai/dsh-tool-jobs' },
     {
-      id: 'tool-str-replace-editor',
-      name: '@deepseek-ai/dsh-tool-str-replace-editor',
-      config: { maxOutputChars: 16000 },
-    },
-    {
       id: 'tool-todo',
       name: '@deepseek-ai/dsh-tool-todo',
       config: { allowParallelInProgress: true },
@@ -241,26 +243,29 @@ export function entryListProblem(rows: unknown, at = ''): string | undefined {
 }
 
 /**
- * Assign the derived gateway environment for the fiber's lifetime. Values the
- * config leaves unset are removed if a previous generation had set them, so a
- * settings-page save that clears a field takes effect on reload. Dependency
- * provisioning stays inside the sandbox: sessions self-provision a
- * workspace-local venv per the persona protocol, never touching host Python.
+ * The gateway values reach toolkit CLIs through the `ctx.shellEnv` registry:
+ * a per-execution `DSH_BIGBEAR_*` overlay merged after the subprocess scrub,
+ * so credential-shaped names survive (an ambient `*_API_KEY` would be stripped
+ * as a suspected leaked credential) and no global process state can be rolled
+ * back by a later fiber disposal. The toolkit CLIs read the plain names and
+ * fall back to these aliases.
+ * @param ctx - host Cordis context.
  * @param config - plain extension config.
- * @returns the fiber-scoped teardown.
  */
-function applyEnv(config: BigbearConfig): () => void {
-  const previous = new Map<string, string | undefined>()
-  for (const [envName, value] of deriveEnv(config)) {
-    previous.set(envName, process.env[envName])
-    process.env[envName] = value
+function applyEnv(ctx: HostContext, config: BigbearConfig): void {
+  const variables: Record<string, { description: string }> = {}
+  const resolved: Record<string, string> = {}
+  for (const [name, value] of deriveEnv(config)) {
+    if (name === 'BIGBEAR_TOOLKIT_DIR') continue
+    const key = `DSH_BIGBEAR_${name}`
+    variables[key] = { description: `Bigbear toolkit gateway value for ${name}` }
+    resolved[key] = value
   }
-  return () => {
-    for (const [envName, prior] of previous) {
-      if (prior === undefined) delete process.env[envName]
-      else process.env[envName] = prior
-    }
-  }
+  ctx.shellEnv.register({
+    name: 'bigbear-agents',
+    variables,
+    resolve: () => resolved,
+  })
 }
 
 /**
@@ -272,7 +277,7 @@ function applyEnv(config: BigbearConfig): () => void {
  */
 export async function apply(ctx: HostContext, config: RawBigbearConfig = {}): Promise<void> {
   const values = plainConfig(config)
-  ctx.effect(applyEnv(values), 'bigbear-agents: gateway environment')
+  applyEnv(ctx, values)
   const skillDir = await resolveSkillDir(values.toolkitDir)
   for (const preset of PRESETS) {
     const personaTemplate = await readFile(join(PERSONAS_DIR, preset.persona), 'utf8')

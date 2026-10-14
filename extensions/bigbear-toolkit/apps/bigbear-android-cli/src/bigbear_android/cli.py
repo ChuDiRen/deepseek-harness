@@ -35,9 +35,9 @@ def _load_cwd_env():
 def load_config():
     """从当前进程环境读取 AI 配置。"""
     return {
-        "api_key": os.getenv("ANDROID_AI_API_KEY", ""),
-        "base_url": os.getenv("ANDROID_AI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        "model": os.getenv("ANDROID_AI_MODEL", "qwen-vl-max"),
+        "api_key": (os.getenv("ANDROID_AI_API_KEY") or os.getenv("DSH_BIGBEAR_ANDROID_AI_API_KEY", "")),
+        "base_url": (os.getenv("ANDROID_AI_BASE_URL") or os.getenv("DSH_BIGBEAR_ANDROID_AI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")),
+        "model": (os.getenv("ANDROID_AI_MODEL") or os.getenv("DSH_BIGBEAR_ANDROID_AI_MODEL", "qwen-vl-max")),
     }
 
 

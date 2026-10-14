@@ -62,13 +62,13 @@ def build_agent(
     from agentscope.state import AgentState
     from agentscope.tool import Bash, Toolkit
 
-    api_key = os.environ.get("AGENT_AI_API_KEY")
+    api_key = (os.environ.get("AGENT_AI_API_KEY") or os.environ.get("DSH_BIGBEAR_AGENT_AI_API_KEY"))
     if not api_key:
         raise _AgentMissingKeyError(
             "缺少环境变量 AGENT_AI_API_KEY,请在 .env 中配置后重试。"
         )
     cred_kwargs: dict = {"api_key": api_key}
-    base_url = os.environ.get("AGENT_AI_BASE_URL")
+    base_url = (os.environ.get("AGENT_AI_BASE_URL") or os.environ.get("DSH_BIGBEAR_AGENT_AI_BASE_URL"))
     if base_url:
         cred_kwargs["base_url"] = base_url
     credential = DashScopeCredential(**cred_kwargs)
@@ -87,7 +87,7 @@ def build_agent(
 
     model = DashScopeChatModel(
         credential=credential,
-        model=os.environ.get("AGENT_AI_MODEL", DEFAULT_MODEL),
+        model=(os.environ.get("AGENT_AI_MODEL") or os.environ.get("DSH_BIGBEAR_AGENT_AI_MODEL", DEFAULT_MODEL)),
         max_retries=max_retries,
         client_kwargs={"timeout": timeout},
     )

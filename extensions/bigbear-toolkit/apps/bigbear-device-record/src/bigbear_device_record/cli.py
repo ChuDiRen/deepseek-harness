@@ -60,8 +60,8 @@ def _make_vision_config(enable: bool, debug_mode: bool = False) -> Optional[dict
     if not enable:
         return None
 
-    api_key = os.environ.get("DEVICE_VISION_API_KEY")
-    base_url = os.environ.get("DEVICE_VISION_BASE_URL")
+    api_key = (os.environ.get("DEVICE_VISION_API_KEY") or os.environ.get("DSH_BIGBEAR_DEVICE_VISION_API_KEY"))
+    base_url = (os.environ.get("DEVICE_VISION_BASE_URL") or os.environ.get("DSH_BIGBEAR_DEVICE_VISION_BASE_URL"))
     model = os.environ.get("DEVICE_VISION_MODEL", "qwen3.6-flash-2026-04-16")
 
     debug(
