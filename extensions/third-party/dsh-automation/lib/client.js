@@ -1,0 +1,3338 @@
+window.__ModuleLoader__.load({ id: "@dsh-external/dsh-automation", factory: (require) => {
+var module = { exports: {} }; var exports = module.exports;
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name2 in all)
+    __defProp(target, name2, { get: all[name2], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/client/index.ts
+var index_exports = {};
+__export(index_exports, {
+  apply: () => apply,
+  inject: () => inject,
+  name: () => name
+});
+module.exports = __toCommonJS(index_exports);
+
+// src/client/AutomationView.tsx
+var import_react2 = require("react");
+var import_react_dom = require("react-dom");
+
+// src/client/RunResolutionActions.tsx
+var import_react = require("react");
+var import_jsx_runtime = require("react/jsx-runtime");
+function RunResolutionActions({ run, t, busy, onResolve, canRetry = true }) {
+  const [pending, setPending] = (0, import_react.useState)();
+  if (run.status === "succeeded" && run.resolution !== void 0) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", { className: "dsh-automation-prompt-details dsh-automation-resolution-details", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("summary", { children: [
+      t(run.resolution.kind === "confirmed" ? "run.confirmed" : "run.retried"),
+      " \xB7 ",
+      t("run.audit")
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", { children: [
+      t(`status.${run.resolution.previousStatus}`),
+      " \xB7 ",
+      run.resolution.at
+    ] }),
+    run.resolution.previousError !== null && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { children: run.resolution.previousError.message })
+  ] });
+  if (!["failed", "interrupted", "skipped", "cancelled"].includes(run.status)) return null;
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { children: onResolve !== void 0 && (pending === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dsh-automation-run-actions", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", disabled: busy, onClick: () => setPending("confirm"), children: t("run.confirmResult") }),
+    canRetry && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", disabled: busy, onClick: () => setPending("retry"), children: t("card.retry") })
+  ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "dsh-automation-delete-confirm dsh-automation-run-confirm", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: t(pending === "confirm" ? "run.confirmResult" : "card.retry") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: t(pending === "confirm" ? "run.confirmHint" : "run.retryHint") })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", disabled: busy, onClick: () => setPending(void 0), children: t("card.cancel") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", disabled: busy, onClick: () => {
+        onResolve(run.id, pending);
+        setPending(void 0);
+      }, children: t("run.confirmAction") })
+    ] })
+  ] })) });
+}
+
+// src/client/refresh-loop.ts
+function startRefreshLoop(refresh, options) {
+  let stopped = false;
+  let pending = false;
+  let timer;
+  const clear = () => {
+    if (timer !== void 0) clearTimeout(timer);
+    timer = void 0;
+  };
+  const poll = async () => {
+    if (stopped || pending || !options.isVisible()) return;
+    pending = true;
+    let delay = options.intervalMs;
+    try {
+      await refresh();
+    } catch {
+      delay = options.retryMs;
+    }
+    pending = false;
+    if (!stopped && options.isVisible()) timer = setTimeout(() => {
+      void poll();
+    }, delay);
+  };
+  const unsubscribe = options.subscribeVisibility(() => {
+    clear();
+    void poll();
+  });
+  void poll();
+  return () => {
+    stopped = true;
+    clear();
+    unsubscribe();
+  };
+}
+function coalesceFrame(task, frames) {
+  let frame;
+  let disposed = false;
+  return {
+    schedule() {
+      if (disposed || frame !== void 0) return;
+      frame = frames.request(() => {
+        frame = void 0;
+        if (!disposed) task();
+      });
+    },
+    dispose() {
+      disposed = true;
+      if (frame !== void 0) frames.cancel(frame);
+      frame = void 0;
+    }
+  };
+}
+
+// src/client/helpers.ts
+var DRAFT_SCHEDULE_KINDS = /* @__PURE__ */ new Set(["once", "interval", "daily", "weekly"]);
+function readDraft(storage, key) {
+  if (storage === void 0) return void 0;
+  try {
+    const raw = storage.getItem(key);
+    if (raw === null) return void 0;
+    const value = JSON.parse(raw);
+    if (typeof value !== "object" || value === null) return void 0;
+    if (typeof value.name !== "string" || typeof value.prompt !== "string") return void 0;
+    if (typeof value.scheduleKind !== "string" || !DRAFT_SCHEDULE_KINDS.has(value.scheduleKind)) return void 0;
+    const base = defaultFormState();
+    return { ...base, ...value, weekdays: Array.isArray(value.weekdays) ? value.weekdays : base.weekdays };
+  } catch {
+    return void 0;
+  }
+}
+function writeDraft(storage, key, form) {
+  if (storage === void 0) return false;
+  try {
+    storage.setItem(key, JSON.stringify(form));
+    return true;
+  } catch {
+    return false;
+  }
+}
+function clearDraft(storage, key) {
+  if (storage === void 0) return;
+  try {
+    const removable = storage;
+    if (removable.removeItem !== void 0) removable.removeItem(key);
+    else storage.setItem(key, "");
+  } catch {
+  }
+}
+var AutomationFormError = class extends Error {
+  constructor(key) {
+    super(key);
+    this.key = key;
+  }
+};
+function localDateTimeValue(date = /* @__PURE__ */ new Date()) {
+  const future = new Date(date.getTime() + 60 * 60 * 1e3);
+  future.setMinutes(0, 0, 0);
+  const offset = future.getTimezoneOffset() * 6e4;
+  return new Date(future.getTime() - offset).toISOString().slice(0, 16);
+}
+function defaultFormState(now = /* @__PURE__ */ new Date()) {
+  return {
+    name: "",
+    prompt: "",
+    scheduleKind: "once",
+    onceAt: localDateTimeValue(now),
+    everyMinutes: "60",
+    time: "09:00",
+    weekdays: [1, 2, 3, 4, 5],
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    provider: null,
+    model: null,
+    reasoningEffort: null,
+    permission: "read-only"
+  };
+}
+function exactLocalDateTimeValue(iso) {
+  const date = new Date(iso);
+  const offset = date.getTimezoneOffset() * 6e4;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+function freshCreateForm(initial, now = /* @__PURE__ */ new Date()) {
+  const form = initial ?? defaultFormState(now);
+  const at = new Date(form.onceAt).getTime();
+  return Number.isFinite(at) && at > now.getTime() ? form : { ...form, onceAt: localDateTimeValue(now) };
+}
+function formStateFromAutomation(automation) {
+  const defaults = defaultFormState();
+  const schedule = automation.schedule;
+  return {
+    ...defaults,
+    name: automation.name,
+    prompt: automation.prompt,
+    scheduleKind: schedule.kind,
+    onceAt: schedule.kind === "once" ? exactLocalDateTimeValue(schedule.at) : defaults.onceAt,
+    everyMinutes: schedule.kind === "interval" ? String(schedule.everyMinutes) : defaults.everyMinutes,
+    ...schedule.kind === "interval" && schedule.anchor !== void 0 ? { intervalAnchor: schedule.anchor } : {},
+    time: schedule.kind === "daily" || schedule.kind === "weekly" ? schedule.time : defaults.time,
+    weekdays: schedule.kind === "weekly" ? [...schedule.weekdays] : defaults.weekdays,
+    timeZone: automation.timeZone,
+    provider: automation.provider,
+    model: automation.model,
+    reasoningEffort: automation.reasoningEffort,
+    permission: automation.permission
+  };
+}
+function validateModelTarget(form) {
+  if (form.provider === null !== (form.model === null)) {
+    throw new AutomationFormError("form.error.model");
+  }
+  if (form.reasoningEffort !== null && form.provider === null) {
+    throw new AutomationFormError("form.error.model");
+  }
+}
+function buildCreateInput(form, now = /* @__PURE__ */ new Date()) {
+  const name2 = form.name.trim();
+  const prompt = form.prompt.trim();
+  if (name2 === "") throw new AutomationFormError("form.error.name");
+  if (prompt === "") throw new AutomationFormError("form.error.prompt");
+  validateModelTarget(form);
+  let schedule;
+  switch (form.scheduleKind) {
+    case "once": {
+      const at = new Date(form.onceAt);
+      if (!Number.isFinite(at.getTime()) || at.getTime() <= now.getTime()) {
+        throw new AutomationFormError("form.error.once");
+      }
+      schedule = { kind: "once", at: at.toISOString(), timeZone: form.timeZone };
+      break;
+    }
+    case "interval": {
+      const everyMinutes = Number(form.everyMinutes);
+      if (!Number.isInteger(everyMinutes) || everyMinutes < 5 || everyMinutes > 43200) {
+        throw new AutomationFormError("form.error.interval");
+      }
+      schedule = {
+        kind: "interval",
+        everyMinutes,
+        anchor: form.intervalAnchor ?? now.toISOString(),
+        timeZone: form.timeZone
+      };
+      break;
+    }
+    case "daily":
+      schedule = { kind: "daily", time: form.time, timeZone: form.timeZone };
+      break;
+    case "weekly":
+      if (form.weekdays.length === 0) throw new AutomationFormError("form.error.weekdays");
+      schedule = { kind: "weekly", time: form.time, weekdays: [...form.weekdays].sort((a, b) => a - b), timeZone: form.timeZone };
+      break;
+  }
+  return {
+    name: name2,
+    prompt,
+    schedule,
+    timeZone: form.timeZone,
+    provider: form.provider,
+    model: form.model,
+    reasoningEffort: form.reasoningEffort,
+    permission: form.permission
+  };
+}
+function scheduleMatchesDraft(form, automation) {
+  const schedule = automation.schedule;
+  if (form.scheduleKind !== schedule.kind || form.timeZone !== automation.timeZone) return false;
+  switch (schedule.kind) {
+    case "once":
+      return form.onceAt === exactLocalDateTimeValue(schedule.at);
+    case "interval":
+      return form.everyMinutes === String(schedule.everyMinutes) && form.intervalAnchor === schedule.anchor;
+    case "daily":
+      return form.time === schedule.time;
+    case "weekly":
+      return form.time === schedule.time && [...form.weekdays].sort((a, b) => a - b).join(",") === [...schedule.weekdays].sort((a, b) => a - b).join(",");
+  }
+}
+function buildUpdateInput(form, automation, now = /* @__PURE__ */ new Date()) {
+  const name2 = form.name.trim();
+  const prompt = form.prompt.trim();
+  if (name2 === "") throw new AutomationFormError("form.error.name");
+  if (prompt === "") throw new AutomationFormError("form.error.prompt");
+  validateModelTarget(form);
+  const scheduleChanged = !scheduleMatchesDraft(form, automation);
+  const routeChanged = form.provider !== automation.provider || form.model !== automation.model;
+  const replacement = scheduleChanged ? buildCreateInput(form, now) : void 0;
+  return {
+    ...name2 === automation.name ? {} : { name: name2 },
+    ...prompt === automation.prompt ? {} : { prompt },
+    ...replacement === void 0 ? {} : {
+      schedule: replacement.schedule,
+      timeZone: replacement.timeZone
+    },
+    ...routeChanged ? {
+      provider: form.provider,
+      model: form.model,
+      reasoningEffort: form.reasoningEffort
+    } : form.reasoningEffort === automation.reasoningEffort ? {} : { reasoningEffort: form.reasoningEffort },
+    ...form.permission === automation.permission ? {} : { permission: form.permission }
+  };
+}
+function modelRouteChoices(catalog, currentProvider, currentModel) {
+  const choices = catalog.groups.flatMap((group) => group.models.map((model2) => ({
+    provider: group.id,
+    providerName: group.name,
+    model: model2.id,
+    modelName: model2.name,
+    ...model2.description === void 0 ? {} : { description: model2.description },
+    unavailable: false
+  })));
+  if (currentProvider === null || currentModel === null || choices.some((choice) => choice.provider === currentProvider && choice.model === currentModel)) {
+    return choices;
+  }
+  return [{
+    provider: currentProvider,
+    providerName: currentProvider,
+    model: currentModel,
+    modelName: currentModel,
+    unavailable: true
+  }, ...choices];
+}
+function reasoningEffortChoices(catalog, provider, model2, currentEffort) {
+  const catalogModel = provider === null || model2 === null ? void 0 : catalog.groups.find((group) => group.id === provider)?.models.find((item) => item.id === model2);
+  const choices = (catalogModel?.reasoning?.efforts ?? []).map((effort) => ({
+    ...effort,
+    unavailable: false
+  }));
+  if (currentEffort === null || choices.some((choice) => choice.id === currentEffort)) return choices;
+  return [{ id: currentEffort, name: currentEffort, unavailable: true }, ...choices];
+}
+function runNeedsAttention(run) {
+  return ATTENTION_STATUSES.has(run.status);
+}
+var ATTENTION_STATUSES = /* @__PURE__ */ new Set(["failed", "interrupted", "skipped", "cancelled"]);
+function startOfLocalDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+function startOfLocalWeek(date) {
+  const start = startOfLocalDay(date);
+  const offset = (start.getDay() + 6) % 7;
+  return addLocalDays(start, -offset);
+}
+function addLocalDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+function isSameLocalDay(left, right) {
+  return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth() && left.getDate() === right.getDate();
+}
+function plannedNextRun(schedule, createdAt, now) {
+  switch (schedule.kind) {
+    case "once": {
+      const at = Date.parse(schedule.at);
+      return Number.isFinite(at) && at > now.getTime() ? schedule.at : void 0;
+    }
+    case "interval": {
+      const anchorMs = Date.parse(schedule.anchor ?? createdAt);
+      if (!Number.isFinite(anchorMs)) return void 0;
+      const step = schedule.everyMinutes * 6e4;
+      const k = Math.floor((now.getTime() - anchorMs) / step) + 1;
+      return new Date(anchorMs + k * step).toISOString();
+    }
+    case "daily": {
+      const [hour, minute] = schedule.time.split(":").map(Number);
+      const next = new Date(now);
+      next.setHours(hour ?? 0, minute ?? 0, 0, 0);
+      if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+      return next.toISOString();
+    }
+    case "weekly": {
+      const [hour, minute] = schedule.time.split(":").map(Number);
+      const days = [...schedule.weekdays].sort((left, right) => left - right);
+      if (days.length === 0) return void 0;
+      const today = now.getDay() === 0 ? 7 : now.getDay();
+      const target = days.find((day) => day > today);
+      const delta = target === void 0 ? 7 - today + (days[0] ?? 1) : target - today;
+      const next = new Date(now);
+      next.setDate(next.getDate() + delta);
+      next.setHours(hour ?? 0, minute ?? 0, 0, 0);
+      return next.toISOString();
+    }
+  }
+}
+function buildWeekCalendarDays(cursor) {
+  const start = startOfLocalWeek(cursor);
+  return Array.from({ length: 7 }, (_, index) => addLocalDays(start, index));
+}
+function buildMonthCalendarGrid(cursor) {
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const start = startOfLocalWeek(first);
+  return Array.from({ length: 42 }, (_, index) => addLocalDays(start, index));
+}
+function deriveOverview(snapshot) {
+  const next = snapshot.automations.filter((item) => item.status === "active" && item.nextRunAt !== void 0).map((item) => item.nextRunAt).sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+  return {
+    total: snapshot.automations.length,
+    active: snapshot.automations.filter((item) => item.status === "active").length,
+    attention: snapshot.attentionCount ?? snapshot.runs.filter(runNeedsAttention).length,
+    ...next === void 0 ? {} : { nextRunAt: next }
+  };
+}
+function isFulfilledAutomation(automation) {
+  return automation.status === "active" && automation.nextRunAt === void 0 && automation.lastRunStatus === "succeeded";
+}
+function formatRelativeTime(iso, now, t) {
+  const value = Date.parse(iso);
+  if (!Number.isFinite(value)) return iso;
+  const deltaMinutes = Math.round((value - now.getTime()) / 6e4);
+  const abs = Math.abs(deltaMinutes);
+  if (abs < 1) return t("time.now");
+  const future = deltaMinutes > 0;
+  if (abs < 60) return t(future ? "time.inMinute" : "time.minuteAgo", { count: abs });
+  const hours = Math.round(abs / 60);
+  if (hours < 24) return t(future ? "time.inHour" : "time.hourAgo", { count: hours });
+  const days = Math.round(hours / 24);
+  return t(future ? "time.inDay" : "time.dayAgo", { count: days });
+}
+function shortSessionId(sessionId) {
+  return sessionId.length <= 12 ? sessionId : `${sessionId.slice(0, 8)}\u2026${sessionId.slice(-4)}`;
+}
+function formatSchedule(schedule, t) {
+  switch (schedule.kind) {
+    case "once":
+      return t("schedule.onceAt", {
+        time: new Date(schedule.at).toLocaleString(void 0, {
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        })
+      });
+    case "interval":
+      return t("schedule.everyMinutes", { count: schedule.everyMinutes });
+    case "daily":
+      return t("schedule.dailyAt", { time: schedule.time });
+    case "weekly":
+      return t("schedule.weeklyAt", {
+        days: schedule.weekdays.map((day) => t(`day.${day}`)).join(" \xB7 "),
+        time: schedule.time
+      });
+  }
+}
+function sortStamp(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function sortAutomations(items, key, direction) {
+  const factor = direction === "asc" ? 1 : -1;
+  return items.slice().sort((left, right) => {
+    if (key === "planned") {
+      const leftNext = left.nextRunAt;
+      const rightNext = right.nextRunAt;
+      if (leftNext === void 0 || rightNext === void 0) {
+        if (leftNext === void 0 && rightNext === void 0) {
+          return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+        }
+        return leftNext === void 0 ? 1 : -1;
+      }
+      const primary2 = sortStamp(leftNext) - sortStamp(rightNext);
+      if (primary2 !== 0) return primary2 * factor;
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+    }
+    const primary = sortStamp(left.createdAt) - sortStamp(right.createdAt);
+    if (primary !== 0) return primary * factor;
+    return left.id.localeCompare(right.id);
+  });
+}
+function resolveSortPreferenceStorage(owner) {
+  if (owner === void 0) return void 0;
+  try {
+    return owner.localStorage;
+  } catch {
+    return void 0;
+  }
+}
+var WORKSPACE_SORT_DEFAULT_KEY = "dsh-automation.sort-default.workspace";
+function readSortDefault(storage, storageKey) {
+  if (storage === void 0) return void 0;
+  try {
+    const raw = storage.getItem(storageKey);
+    if (raw === null) return void 0;
+    const parsed = JSON.parse(raw);
+    if (parsed.key !== "created" && parsed.key !== "planned") return void 0;
+    if (parsed.direction !== "asc" && parsed.direction !== "desc") return void 0;
+    return { key: parsed.key, direction: parsed.direction };
+  } catch {
+    return void 0;
+  }
+}
+function writeSortDefault(storage, storageKey, key, direction) {
+  try {
+    storage.setItem(storageKey, JSON.stringify({ key, direction }));
+  } catch {
+  }
+}
+function readRangeDefault(storage, key) {
+  try {
+    const value = storage?.getItem(key);
+    return value === "month" || value === "list" ? value : "week";
+  } catch {
+    return "week";
+  }
+}
+
+// src/client/task-calendar.ts
+var PROBLEM_STATUSES = /* @__PURE__ */ new Set(["failed", "interrupted", "skipped", "cancelled"]);
+function calendarDateKey(iso) {
+  if (iso === void 0) return void 0;
+  const date = typeof iso === "string" ? new Date(iso) : iso;
+  if (!Number.isFinite(date.getTime())) return void 0;
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+function calendarTaskStatus(task) {
+  return task.calendarRun?.status ?? (task.calendarDate === void 0 ? task.lastRunStatus : task.calendarStatus);
+}
+function isUnverifiedRun(run) {
+  return run?.status === "failed" && run.error === "events is not iterable";
+}
+function calendarTaskKind(task) {
+  const status = calendarTaskStatus(task);
+  if (status === "queued" || status === "running") return "running";
+  if (status !== void 0 && PROBLEM_STATUSES.has(status)) return "attention";
+  if (task.calendarDate !== void 0 && status === "succeeded" && calendarDateKey(task.nextRunAt) !== task.calendarDate) return "executed";
+  if (isFulfilledAutomation(task)) return "executed";
+  return task.status === "paused" ? "paused" : "active";
+}
+function buildTaskCalendar(automations, runs) {
+  const definitions = new Map(automations.map((item) => [item.id, item]));
+  const latest = /* @__PURE__ */ new Map();
+  const buckets = /* @__PURE__ */ new Map();
+  const newer = (left, right) => {
+    const order = (run) => Date.parse(run.startedAt ?? run.scheduledFor);
+    return order(left) > order(right) || order(left) === order(right) && left.id.localeCompare(right.id) > 0;
+  };
+  const put = (date, task) => {
+    if (date === void 0) return;
+    let bucket = buckets.get(date);
+    if (bucket === void 0) {
+      bucket = /* @__PURE__ */ new Map();
+      buckets.set(date, bucket);
+    }
+    const previous = bucket.get(task.id);
+    if (previous?.calendarRun !== void 0 && (task.calendarRun === void 0 || !newer(task.calendarRun, previous.calendarRun))) return;
+    bucket.set(task.id, { ...task, calendarDate: date });
+  };
+  for (const definition of automations) put(calendarDateKey(definition.nextRunAt), definition);
+  for (const run of runs) {
+    const definition = definitions.get(run.automationId);
+    if (definition === void 0) continue;
+    const previous = latest.get(run.automationId);
+    if (previous === void 0 || newer(run, previous)) latest.set(run.automationId, run);
+    put(calendarDateKey(run.retryScheduledFor ?? run.scheduledFor), { ...definition, calendarRun: run });
+  }
+  for (const definition of automations) {
+    const run = latest.get(definition.id);
+    const lastAt = run?.finishedAt ?? run?.startedAt ?? run?.scheduledFor;
+    if (definition.lastRunStatus === void 0 || lastAt !== void 0 && definition.lastRunAt !== void 0 && Date.parse(lastAt) >= Date.parse(definition.lastRunAt)) continue;
+    const date = definition.schedule.kind === "once" ? definition.schedule.at : definition.lastRunAt;
+    const key = calendarDateKey(date);
+    if (key !== void 0) buckets.get(key)?.delete(definition.id);
+    put(key, { ...definition, calendarStatus: definition.lastRunStatus });
+  }
+  return {
+    days: new Map([...buckets].map(([date, entries]) => [date, [...entries.values()]])),
+    all: automations.map((definition) => {
+      const run = latest.get(definition.id);
+      if (run === void 0 || definition.lastRunAt !== void 0 && Date.parse(run.finishedAt ?? run.startedAt ?? run.scheduledFor) < Date.parse(definition.lastRunAt)) return definition;
+      return { ...definition, calendarRun: run };
+    })
+  };
+}
+function calendarCounts(tasks) {
+  const counts = { active: 0, paused: 0, executed: 0, attention: 0, running: 0 };
+  for (const task of tasks) counts[calendarTaskKind(task)] += 1;
+  return counts;
+}
+function taskForRun(automations, runs, runId) {
+  const run = runs.find((item) => item.id === runId);
+  const automation = run === void 0 ? void 0 : automations.find((item) => item.id === run.automationId);
+  if (automation === void 0 || run === void 0) return void 0;
+  const date = calendarDateKey(run.retryScheduledFor ?? run.scheduledFor);
+  return { ...automation, calendarRun: run, ...date === void 0 ? {} : { calendarDate: date } };
+}
+
+// src/client/icons.tsx
+var import_jsx_runtime2 = require("react/jsx-runtime");
+function IconFrame({ children, ...props }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("svg", { viewBox: "0 0 24 24", width: "18", height: "18", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", ...props, children });
+}
+function AutomationIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("circle", { cx: "12", cy: "12", r: "8.25" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M12 7.7v4.7l3.15 1.85" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M5.6 4.9 4.2 6.3M18.4 4.9l1.4 1.4" })
+  ] });
+}
+function PlusIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconFrame, { ...props, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M12 5v14M5 12h14" }) });
+}
+function RefreshIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M21 3v5h-5" })
+  ] });
+}
+function PlayIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconFrame, { ...props, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "m9 7 8 5-8 5V7Z" }) });
+}
+function PauseIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconFrame, { ...props, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M9 7v10M15 7v10" }) });
+}
+function TrashIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconFrame, { ...props, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M5.5 7.5h13M9 7.5V5.7h6v1.8M8 10.5l.5 7h7l.5-7" }) });
+}
+function PencilIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "m5 16.5-.7 3.2 3.2-.7L18 8.5 15.5 6 5 16.5Z" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "m13.8 7.7 2.5 2.5" })
+  ] });
+}
+function ShieldIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M12 3.8 19 6v5.1c0 4.3-2.6 7.4-7 9.1-4.4-1.7-7-4.8-7-9.1V6l7-2.2Z" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "m9.4 12 1.7 1.7 3.7-4" })
+  ] });
+}
+function CalendarIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("rect", { x: "4", y: "5.5", width: "16", height: "14", rx: "2" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M8 3.8v3.4M16 3.8v3.4M4 9.5h16" })
+  ] });
+}
+function CheckIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconFrame, { ...props, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "m5.5 12.5 4 4 9-9" }) });
+}
+function AlertIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M12 4.2 21 19H3L12 4.2Z" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M12 9v4.5M12 16.5h.01" })
+  ] });
+}
+function ChevronIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconFrame, { ...props, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "m8.5 10 3.5 3.5 3.5-3.5" }) });
+}
+function GlobeIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("circle", { cx: "12", cy: "12", r: "8.25" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M3.75 12h16.5" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M12 3.75c2.6 2.55 3.9 5.55 3.9 8.25s-1.3 5.7-3.9 8.25c-2.6-2.55-3.9-5.55-3.9-8.25S9.4 6.3 12 3.75Z" })
+  ] });
+}
+function GearIcon(props) {
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(IconFrame, { ...props, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("circle", { cx: "12", cy: "12", r: "3" }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("path", { d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" })
+  ] });
+}
+
+// src/client/AutomationView.tsx
+var import_jsx_runtime3 = require("react/jsx-runtime");
+var POLL_INTERVAL_MS = 15e3;
+var RETRY_FAST_MS = 3e3;
+var WEEKDAYS = [1, 2, 3, 4, 5, 6, 7];
+var FALLBACK_CITY_ZONES = [
+  "UTC",
+  "Asia/Shanghai",
+  "Asia/Hong_Kong",
+  "Asia/Tokyo",
+  "Asia/Singapore",
+  "Asia/Seoul",
+  "Asia/Dubai",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Moscow",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Sao_Paulo",
+  "Australia/Sydney"
+];
+function cityZoneList() {
+  try {
+    if (typeof Intl !== "undefined" && "supportedValuesOf" in Intl) {
+      return Intl.supportedValuesOf("timeZone").filter((zone) => zone === "UTC" || zone.includes("/") && !zone.startsWith("Etc/") && !zone.startsWith("SystemV/"));
+    }
+  } catch {
+  }
+  return FALLBACK_CITY_ZONES;
+}
+function zoneUtcOffset(zone) {
+  const minutesOf = (offset) => {
+    const label = offset === 0 ? "UTC+00:00" : `UTC${offset > 0 ? "+" : "-"}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:${String(Math.abs(offset) % 60).padStart(2, "0")}`;
+    return { minutes: offset, label };
+  };
+  try {
+    const winter = /* @__PURE__ */ new Date("2026-01-15T00:00:00Z");
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(winter);
+    const get = (type) => Number(parts.find((part) => part.type === type)?.value ?? NaN);
+    const local = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    if (!Number.isFinite(local)) return minutesOf(0);
+    return minutesOf(Math.round((local - winter.getTime()) / 6e4));
+  } catch {
+    return minutesOf(0);
+  }
+}
+var baseTimeZoneChoices;
+function timeZoneChoices(current) {
+  baseTimeZoneChoices ??= cityZoneList().map((zone) => {
+    const offset2 = zoneUtcOffset(zone);
+    const city = zone === "UTC" ? "UTC" : (zone.split("/").pop() ?? zone).replace(/_/g, " ");
+    return {
+      value: zone,
+      label: `${city} (${offset2.label})`,
+      minutes: offset2.minutes
+    };
+  }).sort((left, right) => left.minutes - right.minutes || left.label.localeCompare(right.label));
+  if (baseTimeZoneChoices.some((item) => item.value === current)) return baseTimeZoneChoices;
+  const offset = zoneUtcOffset(current);
+  return [...baseTimeZoneChoices, { value: current, label: `${current} (${offset.label})` }];
+}
+var SORT_STORAGE = resolveSortPreferenceStorage(
+  typeof window === "undefined" ? void 0 : window
+);
+var WORKSPACE_RANGE_DEFAULT_KEY = "dsh-automation.range-default.workspace";
+function actionKey(action, id = "") {
+  return `${action}:${id}`;
+}
+function statusLabel(t, status) {
+  return t(`status.${status}`);
+}
+function AutomationStatusBadge({ status, t }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: `dsh-automation-badge dsh-automation-badge--${status}`, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-status-dot" }),
+    t(`status.${status}`)
+  ] });
+}
+function RunStatusBadge({ status, t }) {
+  const icon = status === "succeeded" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CheckIcon, {}) : status === "failed" || status === "interrupted" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AlertIcon, {}) : status === "running" || status === "queued" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationIcon, {}) : void 0;
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: `dsh-automation-run-status dsh-automation-run-status--${status}`, children: [
+    icon,
+    statusLabel(t, status)
+  ] });
+}
+var FLOAT_DEFAULT_WIDTH = 480;
+var FLOAT_DEFAULT_HEIGHT = 645;
+var FLOAT_MIN_WIDTH = 320;
+var FLOAT_MIN_HEIGHT = 320;
+var FLOAT_MARGIN = 8;
+function currentAutomationFloatViewport() {
+  if (typeof window === "undefined") return { width: FLOAT_DEFAULT_WIDTH + 32, height: FLOAT_DEFAULT_HEIGHT + 48 };
+  const viewport = window.visualViewport;
+  if (viewport === null) return {
+    width: Math.max(0, Math.floor(window.innerWidth)),
+    height: Math.max(0, Math.floor(window.innerHeight))
+  };
+  return {
+    width: Math.max(0, Math.floor(viewport.width)),
+    height: Math.max(0, Math.floor(viewport.height)),
+    offsetLeft: Math.max(0, viewport.offsetLeft),
+    offsetTop: Math.max(0, viewport.offsetTop)
+  };
+}
+function withAutomationFloatOrigin(box, viewport) {
+  const originLeft = viewport.offsetLeft ?? 0;
+  const originTop = viewport.offsetTop ?? 0;
+  if (originLeft === 0 && originTop === 0) return box;
+  return { ...box, x: box.x + originLeft, y: box.y + originTop };
+}
+function withoutAutomationFloatOrigin(box, viewport) {
+  const originLeft = viewport.offsetLeft ?? 0;
+  const originTop = viewport.offsetTop ?? 0;
+  if (originLeft === 0 && originTop === 0) return box;
+  return { ...box, x: box.x - originLeft, y: box.y - originTop };
+}
+function clampAutomationFloatBox(value, viewport) {
+  const box = withoutAutomationFloatOrigin(value, viewport);
+  const marginX = Math.min(FLOAT_MARGIN, Math.max(0, viewport.width / 2));
+  const marginY = Math.min(FLOAT_MARGIN, Math.max(0, viewport.height / 2));
+  const availableWidth = Math.max(0, viewport.width - marginX * 2);
+  const availableHeight = Math.max(0, viewport.height - marginY * 2);
+  const minWidth = Math.min(FLOAT_MIN_WIDTH, availableWidth);
+  const minHeight = Math.min(FLOAT_MIN_HEIGHT, availableHeight);
+  const w = Math.max(minWidth, Math.min(box.w, availableWidth));
+  const h = Math.max(minHeight, Math.min(box.h, availableHeight));
+  const x = Math.max(marginX, Math.min(box.x, viewport.width - marginX - w));
+  const y = Math.max(marginY, Math.min(box.y, viewport.height - marginY - h));
+  return withAutomationFloatOrigin({ x, y, w, h }, viewport);
+}
+function initialAutomationFloatBox(anchor, viewport = currentAutomationFloatViewport(), initialHeight = FLOAT_DEFAULT_HEIGHT) {
+  const originLeft = viewport.offsetLeft ?? 0;
+  const originTop = viewport.offsetTop ?? 0;
+  const originViewport = {
+    width: viewport.width,
+    height: viewport.height,
+    offsetLeft: originLeft,
+    offsetTop: originTop
+  };
+  let box = clampAutomationFloatBox({
+    x: Math.round((viewport.width - FLOAT_DEFAULT_WIDTH) / 2),
+    y: Math.round((viewport.height - initialHeight) / 2),
+    w: FLOAT_DEFAULT_WIDTH,
+    h: initialHeight
+  }, originViewport);
+  if (anchor === void 0) return box;
+  let x = Math.round(anchor.right + FLOAT_MARGIN);
+  let y = Math.round(anchor.bottom + FLOAT_MARGIN);
+  const rightLimit = originLeft + viewport.width - FLOAT_MARGIN;
+  const bottomLimit = originTop + viewport.height - FLOAT_MARGIN;
+  if (x + box.w > rightLimit) x = Math.round(anchor.left - box.w - FLOAT_MARGIN);
+  if (y + box.h > bottomLimit) y = Math.round(anchor.top - box.h - FLOAT_MARGIN);
+  box = clampAutomationFloatBox({ ...box, x, y }, originViewport);
+  return box;
+}
+function AutomationFloat({ label, busy, onClose, anchor, height, children }) {
+  const [box, setBox] = (0, import_react2.useState)(() => initialAutomationFloatBox(anchor, void 0, height));
+  const dragRef = (0, import_react2.useRef)();
+  const dragCleanupRef = (0, import_react2.useRef)(void 0);
+  (0, import_react2.useEffect)(() => {
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape" || busy) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [busy, onClose]);
+  (0, import_react2.useEffect)(() => {
+    const reclamp = () => {
+      setBox((current) => clampAutomationFloatBox(current, currentAutomationFloatViewport()));
+    };
+    const viewport = window.visualViewport;
+    window.addEventListener("resize", reclamp);
+    viewport?.addEventListener("resize", reclamp);
+    viewport?.addEventListener("scroll", reclamp);
+    return () => {
+      window.removeEventListener("resize", reclamp);
+      viewport?.removeEventListener("resize", reclamp);
+      viewport?.removeEventListener("scroll", reclamp);
+      dragCleanupRef.current?.();
+    };
+  }, []);
+  const clampBox = (value) => {
+    setBox(clampAutomationFloatBox(value, currentAutomationFloatViewport()));
+  };
+  const stopDrag = () => {
+    dragRef.current = void 0;
+    const cleanup = dragCleanupRef.current;
+    if (cleanup === void 0) return;
+    dragCleanupRef.current = void 0;
+    cleanup();
+  };
+  const onMoveStart = (event) => {
+    if (busy || dragRef.current !== void 0) return;
+    const target = event.target;
+    if (target.closest("button, input, textarea, select, details, summary") !== null) return;
+    event.preventDefault();
+    dragRef.current = { mode: "move", startX: event.clientX, startY: event.clientY, x: box.x, y: box.y, w: box.w, h: box.h };
+    const onMove = (move) => {
+      const drag = dragRef.current;
+      if (drag === void 0) return;
+      clampBox({
+        x: drag.x + move.clientX - drag.startX,
+        y: drag.y + move.clientY - drag.startY,
+        w: drag.w,
+        h: drag.h
+      });
+    };
+    const cleanup = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", stopDrag);
+      window.removeEventListener("blur", stopDrag);
+    };
+    dragCleanupRef.current = cleanup;
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", stopDrag);
+    window.addEventListener("blur", stopDrag);
+  };
+  const onResizeStart = (event) => {
+    if (busy || dragRef.current !== void 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragRef.current = { mode: "resize", startX: event.clientX, startY: event.clientY, x: box.x, y: box.y, w: box.w, h: box.h };
+    const onMove = (move) => {
+      const drag = dragRef.current;
+      if (drag === void 0) return;
+      clampBox({
+        x: drag.x,
+        y: drag.y,
+        w: drag.w + move.clientX - drag.startX,
+        h: drag.h + move.clientY - drag.startY
+      });
+    };
+    const cleanup = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", stopDrag);
+      window.removeEventListener("blur", stopDrag);
+    };
+    dragCleanupRef.current = cleanup;
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", stopDrag);
+    window.addEventListener("blur", stopDrag);
+  };
+  const dialog = /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+    "div",
+    {
+      className: "dsh-automation-float",
+      role: "dialog",
+      "aria-modal": "false",
+      "aria-label": label,
+      style: { left: box.x, top: box.y, width: box.w, height: box.h },
+      onMouseDown: onMoveStart,
+      children: [
+        children,
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-float-resize", "aria-hidden": "true", onMouseDown: onResizeStart })
+      ]
+    }
+  );
+  return typeof document === "undefined" ? dialog : (0, import_react_dom.createPortal)(dialog, document.body);
+}
+function AutomationForm(props) {
+  const { t, busy, loadModelCatalog: loadModelCatalog2, onCancel } = props;
+  const [form, setForm] = (0, import_react2.useState)(() => props.mode === "create" ? freshCreateForm(props.initial) : formStateFromAutomation(props.automation));
+  const zoneChoices = (0, import_react2.useMemo)(() => timeZoneChoices(form.timeZone), [form.timeZone]);
+  const [draftSaved, setDraftSaved] = (0, import_react2.useState)(false);
+  const [validationError, setValidationError] = (0, import_react2.useState)();
+  const [catalog, setCatalog] = (0, import_react2.useState)({ groups: [], failures: [] });
+  const [catalogError, setCatalogError] = (0, import_react2.useState)();
+  const [catalogLoading, setCatalogLoading] = (0, import_react2.useState)(true);
+  const [catalogGeneration, setCatalogGeneration] = (0, import_react2.useState)(0);
+  const zoneSelect = (0, import_react2.useRef)(null);
+  const nameInput = (0, import_react2.useRef)(null);
+  (0, import_react2.useEffect)(() => {
+    nameInput.current?.focus({ preventScroll: true });
+  }, []);
+  (0, import_react2.useEffect)(() => {
+    let live = true;
+    setCatalogLoading(true);
+    setCatalogError(void 0);
+    void loadModelCatalog2().then((value) => {
+      if (!live) return;
+      setCatalog(value);
+      setCatalogLoading(false);
+    }, (error) => {
+      if (!live) return;
+      setCatalogError(error instanceof Error ? error.message : String(error));
+      setCatalogLoading(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [catalogGeneration, loadModelCatalog2]);
+  const update = (key, value) => {
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      return props.mode === "create" && key === "scheduleKind" && value === "once" ? freshCreateForm(next) : next;
+    });
+    setDraftSaved(false);
+    setValidationError(void 0);
+  };
+  const onSaveDraftProp = props.mode === "create" ? props.onSaveDraft : void 0;
+  const onDraftChange = props.mode === "create" ? props.onDraftChange : void 0;
+  const onFlushDraft = props.mode === "create" ? props.onFlushDraft : void 0;
+  (0, import_react2.useEffect)(() => {
+    onDraftChange?.(form);
+    if (onSaveDraftProp === void 0) return;
+    const timer = window.setTimeout(() => {
+      setDraftSaved(onSaveDraftProp(form));
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [form, onSaveDraftProp, onDraftChange]);
+  (0, import_react2.useEffect)(() => () => {
+    onFlushDraft?.();
+  }, [onFlushDraft]);
+  const toggleWeekday = (day) => {
+    update("weekdays", form.weekdays.includes(day) ? form.weekdays.filter((value) => value !== day) : [...form.weekdays, day]);
+  };
+  const updateModel = (provider, model2) => {
+    setForm((current) => ({
+      ...current,
+      provider,
+      model: model2,
+      reasoningEffort: current.provider === provider && current.model === model2 ? current.reasoningEffort : null
+    }));
+    setDraftSaved(false);
+    setValidationError(void 0);
+  };
+  const routeKey = (provider, model2) => JSON.stringify([provider, model2]);
+  const modelChoices = modelRouteChoices(catalog, form.provider, form.model);
+  const unavailableModel = modelChoices.find((choice) => choice.unavailable);
+  const effortChoices = reasoningEffortChoices(
+    catalog,
+    form.provider,
+    form.model,
+    form.reasoningEffort
+  );
+  const selectedCatalogModel = form.provider === null || form.model === null ? void 0 : catalog.groups.find((group) => group.id === form.provider)?.models.find((model2) => model2.id === form.model);
+  const defaultEffort = selectedCatalogModel?.reasoning?.defaultEffort;
+  const defaultEffortName = defaultEffort === void 0 ? void 0 : selectedCatalogModel?.reasoning?.efforts.find((effort) => effort.id === defaultEffort)?.name ?? defaultEffort;
+  const selectedEffort = form.reasoningEffort === null ? void 0 : effortChoices.find((choice) => choice.id === form.reasoningEffort);
+  const submit = (event) => {
+    event.preventDefault();
+    try {
+      setValidationError(void 0);
+      if (props.mode === "create") {
+        void props.onSubmit(buildCreateInput(form));
+      } else {
+        void props.onSubmit(buildUpdateInput(form, props.automation));
+      }
+    } catch (error) {
+      if (error instanceof AutomationFormError) {
+        setValidationError(t(error.key));
+        return;
+      }
+      throw error;
+    }
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("form", { className: "dsh-automation-create", onSubmit: submit, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-create-heading", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: t(props.mode === "create" ? "form.title" : "form.editTitle") }),
+      props.mode === "edit" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("form.editSubtitle") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: onCancel, disabled: busy, children: t("form.cancel") })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-form-grid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.name") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { ref: nameInput, value: form.name, maxLength: 80, placeholder: t("form.namePlaceholder"), onChange: (event) => update("name", event.currentTarget.value) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field dsh-automation-field--wide", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+          t("form.prompt"),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { className: "dsh-automation-field-note", children: t("form.subtitle") })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("textarea", { value: form.prompt, maxLength: 12e3, rows: props.mode === "edit" ? 8 : 4, placeholder: t("form.promptPlaceholder"), onChange: (event) => update("prompt", event.currentTarget.value) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.model") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+          "select",
+          {
+            value: form.provider === null || form.model === null ? "" : routeKey(form.provider, form.model),
+            onChange: (event) => {
+              const value = event.currentTarget.value;
+              if (value === "") {
+                updateModel(null, null);
+                return;
+              }
+              const choice = modelChoices.find((item) => routeKey(item.provider, item.model) === value);
+              if (choice !== void 0) updateModel(choice.provider, choice.model);
+            },
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "", children: t("form.followGlobal") }),
+              unavailableModel !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: routeKey(unavailableModel.provider, unavailableModel.model), children: t("form.currentUnavailable", {
+                provider: unavailableModel.provider,
+                model: unavailableModel.model
+              }) }),
+              catalog.groups.map((group) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("optgroup", { label: group.name, children: group.models.map((model2) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: routeKey(group.id, model2.id), children: model2.name }, model2.id)) }, group.id))
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { children: form.provider === null ? t("form.followGlobalHint") : t("form.pinnedModelHint") })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.reasoningEffort") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+          "select",
+          {
+            value: form.reasoningEffort ?? "",
+            disabled: form.provider === null,
+            onChange: (event) => update("reasoningEffort", event.currentTarget.value === "" ? null : event.currentTarget.value),
+            children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "", children: defaultEffortName === void 0 ? t("form.modelDefault") : t("form.modelDefaultValue", { effort: defaultEffortName }) }),
+              effortChoices.map((effort) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: effort.id, children: effort.unavailable ? t("form.effortUnavailable", { effort: effort.name }) : effort.name }, effort.id))
+            ]
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { children: form.provider === null ? t("form.reasoningFollowGlobal") : selectedEffort?.description ?? t("form.reasoningHint") })
+      ] }),
+      (catalogLoading || catalogError !== void 0 || catalog.failures.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-catalog-status dsh-automation-field--wide", role: "status", children: [
+        catalogLoading && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.catalogLoading") }),
+        catalogError !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "is-error", children: t("form.catalogError", { message: catalogError }) }),
+        catalog.failures.map((failure) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "is-warning", children: t("form.catalogFailure", { provider: failure.name, message: failure.message }) }, failure.id)),
+        !catalogLoading && (catalogError !== void 0 || catalog.failures.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", onClick: () => setCatalogGeneration((value) => value + 1), children: t("form.catalogRetry") })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("fieldset", { className: "dsh-automation-fieldset dsh-automation-field--wide", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("legend", { children: t("form.schedule") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-segmented", children: ["once", "interval", "daily", "weekly"].map((kind) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          "button",
+          {
+            type: "button",
+            className: form.scheduleKind === kind ? "is-selected" : "",
+            "aria-pressed": form.scheduleKind === kind,
+            onClick: () => update("scheduleKind", kind),
+            children: t(`form.${kind}`)
+          },
+          kind
+        )) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-schedule-fields", children: [
+          form.scheduleKind === "once" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.runAt") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { type: "datetime-local", value: form.onceAt, onChange: (event) => update("onceAt", event.currentTarget.value) })
+          ] }),
+          form.scheduleKind === "interval" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.every") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-inline-input", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { type: "number", min: 5, max: 43200, value: form.everyMinutes, onChange: (event) => update("everyMinutes", event.currentTarget.value) }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.minutes") })
+            ] })
+          ] }),
+          (form.scheduleKind === "daily" || form.scheduleKind === "weekly") && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.time") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { type: "time", value: form.time, onChange: (event) => update("time", event.currentTarget.value) })
+          ] }),
+          form.scheduleKind === "weekly" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-field dsh-automation-weekdays", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.days") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { children: WEEKDAYS.map((day) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", "aria-pressed": form.weekdays.includes(day), className: form.weekdays.includes(day) ? "is-selected" : "", onClick: () => toggleWeekday(day), children: t(`day.${day}`) }, day)) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.timeZone") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-timezone", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "select",
+                {
+                  ref: zoneSelect,
+                  value: form.timeZone,
+                  onChange: (event) => update("timeZone", event.currentTarget.value),
+                  children: zoneChoices.map((zone) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: zone.value, children: zone.label }, zone.value))
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "dsh-automation-timezone-globe",
+                  "aria-label": t("form.timeZone"),
+                  title: t("form.timeZone"),
+                  onClick: () => {
+                    const select = zoneSelect.current;
+                    if (select === null) return;
+                    try {
+                      select.showPicker();
+                    } catch {
+                      select.focus();
+                    }
+                  },
+                  children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(GlobeIcon, {})
+                }
+              )
+            ] })
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("fieldset", { className: "dsh-automation-fieldset dsh-automation-field--wide", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("legend", { children: t("form.permission") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-permission-grid", children: ["read-only", "workspace-write"].map((permission) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: form.permission === permission ? "is-selected" : "", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("input", { type: "radio", name: "permission", value: permission, checked: form.permission === permission, onChange: () => update("permission", permission) }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ShieldIcon, {}),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: t(permission === "read-only" ? "form.readOnly" : "form.workspaceWrite") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { children: t(permission === "read-only" ? "form.readOnlyHint" : "form.workspaceWriteHint") })
+          ] })
+        ] }, permission)) })
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-form-footer", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-form-error", role: "alert", children: validationError }),
+      props.mode === "create" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+        "button",
+        {
+          className: "dsh-automation-button dsh-automation-button--ghost",
+          type: "button",
+          disabled: busy || draftSaved,
+          onClick: () => {
+            setDraftSaved(props.onSaveDraft?.(form) === true);
+          },
+          children: [
+            draftSaved ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CheckIcon, {}) : null,
+            t(draftSaved ? "form.draftSaved" : "form.saveDraft")
+          ]
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "submit", disabled: busy, children: [
+        props.mode === "create" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlusIcon, {}) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PencilIcon, {}),
+        busy ? t(props.mode === "create" ? "form.submitting" : "form.saving") : t(props.mode === "create" ? "form.submit" : "form.save")
+      ] })
+    ] })
+  ] });
+}
+var WAIT_PRESET_VALUES = [30, 60, 300, 720, 1440, 525600];
+var CUSTOM_WAIT = -1;
+function waitOptionKey(minutes) {
+  switch (minutes) {
+    case 30:
+      return "settings.missedRuns.waitOpt.m30";
+    case 60:
+      return "settings.missedRuns.waitOpt.h1";
+    case 300:
+      return "settings.missedRuns.waitOpt.h5";
+    case 720:
+      return "settings.missedRuns.waitOpt.h12";
+    case 1440:
+      return "settings.missedRuns.waitOpt.h24";
+    default:
+      return "settings.missedRuns.waitOpt.forever";
+  }
+}
+function waitPresetValue(value) {
+  return WAIT_PRESET_VALUES.find((candidate) => candidate === value);
+}
+function AutomationSettingsPanel(props) {
+  const { t, settings, busy, saveError, onCancel, onSubmit } = props;
+  const [open, setOpen] = (0, import_react2.useState)(true);
+  const [catchUpMissedRuns, setCatchUpMissedRuns] = (0, import_react2.useState)(settings.catchUpMissedRuns);
+  const [waitChoice, setWaitChoice] = (0, import_react2.useState)(() => waitPresetValue(settings.misfireGraceMinutes) ?? CUSTOM_WAIT);
+  const [customWait, setCustomWait] = (0, import_react2.useState)(() => String(Math.max(1, settings.misfireGraceMinutes)));
+  const [catchUpMax, setCatchUpMax] = (0, import_react2.useState)(String(settings.catchUpMissedRunsMax));
+  const [validationError, setValidationError] = (0, import_react2.useState)();
+  const submit = (event) => {
+    event.preventDefault();
+    setValidationError(void 0);
+    const max = Number.parseInt(catchUpMax, 10);
+    if (!Number.isInteger(max) || max < 1 || max > 1e3) {
+      setValidationError(t("settings.missedRuns.errorMax"));
+      return;
+    }
+    const wait = waitChoice === CUSTOM_WAIT ? Number.parseInt(customWait, 10) : waitChoice;
+    if (waitChoice === CUSTOM_WAIT && (!Number.isInteger(wait) || wait < 1 || wait > 525600)) {
+      setValidationError(t("settings.missedRuns.errorCustomWait"));
+      return;
+    }
+    void onSubmit({
+      catchUpMissedRuns,
+      catchUpMissedRunsMax: max,
+      // "Mark only" never replays: it stores a near-zero grace so any late
+      // occurrence is immediately marked as missed.
+      misfireGraceMinutes: catchUpMissedRuns ? wait : 1
+    });
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("form", { className: "dsh-automation-create", onSubmit: submit, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-create-heading", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: t("settings.title") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: onCancel, disabled: busy, children: t("form.cancel") })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-form-grid", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "dsh-automation-settings-section dsh-automation-field--wide", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+        "button",
+        {
+          type: "button",
+          className: "dsh-automation-settings-section-head",
+          "aria-expanded": open,
+          onClick: () => setOpen((current) => !current),
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ChevronIcon, { className: "dsh-automation-chevron" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: t("settings.missedRuns.title") })
+          ]
+        }
+      ),
+      open && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-settings-section-body", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dsh-automation-settings-lead", children: t("settings.missedRuns.lead") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("settings.missedRuns.strategy") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+            "select",
+            {
+              value: catchUpMissedRuns ? "catch-up" : "skip",
+              onChange: (event) => setCatchUpMissedRuns(event.currentTarget.value === "catch-up"),
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "catch-up", children: t("settings.missedRuns.strategyCatchUp") }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: "skip", children: t("settings.missedRuns.strategySkip") })
+              ]
+            }
+          )
+        ] }),
+        catchUpMissedRuns ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("settings.missedRuns.waitLabel") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+              "select",
+              {
+                value: waitChoice,
+                onChange: (event) => setWaitChoice(Number(event.currentTarget.value)),
+                children: [
+                  WAIT_PRESET_VALUES.map((minutes) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: minutes, children: t(waitOptionKey(minutes)) }, minutes)),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: CUSTOM_WAIT, children: t("settings.missedRuns.waitOpt.custom") })
+                ]
+              }
+            ),
+            waitChoice === CUSTOM_WAIT && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-inline-input", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "input",
+                {
+                  type: "number",
+                  min: 1,
+                  max: 525600,
+                  step: 1,
+                  value: customWait,
+                  onChange: (event) => setCustomWait(event.currentTarget.value)
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("settings.missedRuns.waitUnitMin") })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { children: t("settings.missedRuns.waitHint") })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: "dsh-automation-field", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("settings.missedRuns.maxLabel") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-inline-input", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+                "input",
+                {
+                  type: "number",
+                  min: 1,
+                  max: 1e3,
+                  step: 1,
+                  value: catchUpMax,
+                  onChange: (event) => setCatchUpMax(event.currentTarget.value)
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("settings.missedRuns.times") })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { children: t("settings.missedRuns.maxHint") })
+          ] })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dsh-automation-settings-lead", children: t("settings.missedRuns.skipBody") })
+      ] })
+    ] }) }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-form-footer", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-form-error", role: "alert", children: validationError ?? saveError }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "submit", disabled: busy, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CheckIcon, {}),
+        busy ? t("settings.saving") : t("settings.save")
+      ] })
+    ] })
+  ] });
+}
+function AutomationRunDialog(props) {
+  const { t, automation, busy, onCancel, onRun } = props;
+  const canAhead = automation.nextRunAt !== void 0;
+  const [mode, setMode] = (0, import_react2.useState)(() => calendarTaskKind(automation) === "attention" ? "plain" : "ahead");
+  const chosen = canAhead ? mode : "plain";
+  const submit = (event) => {
+    event.preventDefault();
+    void onRun(automation.id, chosen);
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("form", { className: "dsh-automation-create dsh-automation-run-dialog", onSubmit: submit, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-create-heading", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: t("run.title") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: automation.name }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: onCancel, disabled: busy, children: t("form.cancel") })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-form-grid", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-permission-grid dsh-automation-field--wide", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: chosen === "ahead" ? "is-selected" : "", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            "input",
+            {
+              type: "radio",
+              name: "run-mode",
+              value: "ahead",
+              checked: chosen === "ahead",
+              disabled: !canAhead,
+              onChange: () => setMode("ahead")
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: t("run.ahead") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { children: t("run.aheadHint") })
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("label", { className: chosen === "plain" ? "is-selected" : "", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            "input",
+            {
+              type: "radio",
+              name: "run-mode",
+              value: "plain",
+              checked: chosen === "plain",
+              onChange: () => setMode("plain")
+            }
+          ),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: t("run.plain") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("small", { children: t("run.plainHint") })
+          ] })
+        ] })
+      ] }),
+      !canAhead && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dsh-automation-settings-lead dsh-automation-field--wide", children: t("run.noPlan") })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-form-footer", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", {}),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "submit", disabled: busy, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlayIcon, {}),
+        busy ? t("settings.saving") : t("run.confirm")
+      ] })
+    ] })
+  ] });
+}
+function AutomationCard(props) {
+  const { automation, now, t, busyKey, confirmingDelete, onConfirmDelete, onEdit, onMutate, onRun } = props;
+  const isBusy = busyKey?.endsWith(`:${automation.id}`) === true || automation.calendarRun !== void 0 && busyKey?.endsWith(`:${automation.calendarRun.id}`) === true;
+  const fulfilled = calendarTaskKind(automation) === "executed";
+  const run = automation.calendarRun;
+  const runStatus = calendarTaskStatus(automation);
+  const problem = calendarTaskKind(automation) === "attention";
+  const unverified = isUnverifiedRun(run);
+  const lastRunAt = run?.finishedAt ?? run?.startedAt ?? run?.scheduledFor ?? (automation.calendarDate !== void 0 && automation.calendarStatus === void 0 ? void 0 : automation.lastRunAt);
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("article", { className: "dsh-automation-card", id: `dsh-automation-task-${automation.id}`, tabIndex: -1, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-card-top", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-card-title", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-card-icon", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationIcon, {}) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: automation.name }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-card-badges", children: [
+            problem || runStatus === "queued" || runStatus === "running" ? unverified ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-run-status dsh-automation-run-status--failed", children: t("card.resultUnverified") }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RunStatusBadge, { status: runStatus, t }) : fulfilled ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-badge dsh-automation-badge--executed", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-status-dot" }),
+              t("card.executed")
+            ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationStatusBadge, { status: automation.status, t }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-permission-badge", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ShieldIcon, {}),
+              t(`card.permission.${automation.permission}`)
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-model-badge", children: automation.provider === null || automation.model === null ? t("card.modelGlobal") : t("card.modelPinned", {
+              provider: automation.provider,
+              model: automation.model,
+              effort: automation.reasoningEffort ?? t("form.modelDefault")
+            }) })
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-revision", children: [
+        "v",
+        automation.revision
+      ] })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dsh-automation-prompt", children: automation.prompt }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("details", { className: "dsh-automation-prompt-details", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("summary", { children: t("card.viewPrompt") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("pre", { children: automation.prompt })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-schedule-line", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CalendarIcon, {}),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: formatSchedule(automation.schedule, t) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: automation.timeZone })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("dl", { className: "dsh-automation-card-times", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: t("card.nextRun") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: automation.status === "paused" ? t("card.nextRunPaused") : automation.nextRunAt !== void 0 ? formatRelativeTime(automation.nextRunAt, now, t) : fulfilled ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-mini-dot" }),
+          t("card.executed")
+        ] }) : "\u2014" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: t(automation.calendarDate === void 0 ? "card.lastRun" : "card.dayRun") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: lastRunAt === void 0 ? t("card.never") : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `dsh-automation-mini-dot${fulfilled ? "" : ` dsh-automation-mini-dot--${runStatus ?? "succeeded"}`}` }),
+          formatRelativeTime(lastRunAt, now, t)
+        ] }) })
+      ] })
+    ] }),
+    problem && run?.error !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dsh-automation-task-error", children: unverified ? t("card.resultUnverifiedHint") : run.error }),
+    run?.sessionId !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-run-session-row", children: run.sessionArchived ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-session-id dsh-automation-session-id--archived", children: t("run.sessionArchived", { id: shortSessionId(run.sessionId) }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-session-id", type: "button", disabled: isBusy, onClick: () => props.onOpen(run.id, run.sessionId), children: t("run.openSession", { id: shortSessionId(run.sessionId) }) }) }),
+    run !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RunResolutionActions, { run, t, busy: isBusy || props.resolutionBusy === true, onResolve: props.onResolve }),
+    confirmingDelete ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-delete-confirm", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: t("card.confirmDelete") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("card.confirmDeleteHint") })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: () => onConfirmDelete(), disabled: isBusy, children: t("card.cancel") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--danger", type: "button", onClick: () => onMutate(automation.id, "delete"), disabled: isBusy, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TrashIcon, {}),
+          t("card.confirm")
+        ] })
+      ] })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-card-actions", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: (event) => onEdit(automation, event.currentTarget.getBoundingClientRect()), disabled: isBusy, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PencilIcon, {}),
+        t("card.edit")
+      ] }),
+      !problem && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: (event) => onRun(automation, event.currentTarget.getBoundingClientRect()), disabled: isBusy, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlayIcon, {}),
+        t(automation.lastRunAt === void 0 && run === void 0 ? "card.runNow" : "card.runAgain")
+      ] }),
+      !isFulfilledAutomation(automation) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: () => onMutate(automation.id, automation.status === "active" ? "pause" : "resume"), disabled: isBusy, children: [
+        automation.status === "active" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PauseIcon, {}) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlayIcon, {}),
+        t(automation.status === "active" ? "card.pause" : "card.resume")
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-icon-button", type: "button", "aria-label": t("card.delete"), title: t("card.delete"), onClick: () => onConfirmDelete(automation.id), disabled: isBusy, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TrashIcon, {}) })
+    ] })
+  ] });
+}
+function RecentRun({ run, now, t, busy, automationMissing, confirmingDelete, onOpen, onReadd, onConfirmDelete, onDelete, onResolve, onAgain, resolutionBusy, onViewProblem }) {
+  const timestamp = run.finishedAt ?? run.startedAt ?? run.scheduledFor;
+  const problem = runNeedsAttention(run);
+  const canDelete = run.status !== "queued" && run.status !== "running";
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("article", { className: "dsh-automation-run", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-run-top", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-run-title", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-run-icon", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationIcon, {}) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: automationMissing ? t("run.automationDeleted") : run.automationName }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-run-meta", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-run-trigger", children: t(`run.trigger.${run.trigger}`) }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RunStatusBadge, { status: run.status, t })
+          ] })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("time", { dateTime: timestamp, children: formatRelativeTime(timestamp, now, t) })
+    ] }),
+    (run.summary !== void 0 || run.error !== void 0) && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: run.error === void 0 ? "" : "is-error", children: run.error ?? run.summary }),
+    run.sessionId !== void 0 && run.sessionArchived && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-run-session-row", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-session-id dsh-automation-session-id--archived", title: run.sessionId, children: t("run.sessionArchived", { id: shortSessionId(run.sessionId) }) }) }),
+    run.sessionId !== void 0 && !run.sessionArchived && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-run-session-row", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-session-id", type: "button", onClick: () => onOpen(run.id, run.sessionId), children: t("run.openSession", { id: shortSessionId(run.sessionId) }) }) }),
+    (!problem || automationMissing || onViewProblem === void 0) && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RunResolutionActions, { run, t, busy: busy || resolutionBusy === true, onResolve, canRetry: !automationMissing }),
+    confirmingDelete ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-delete-confirm dsh-automation-run-confirm", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: t("run.confirmDelete") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("run.confirmDeleteHint") })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: () => onConfirmDelete(), disabled: busy, children: t("card.cancel") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--danger", type: "button", onClick: () => onDelete(run.id), disabled: busy, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TrashIcon, {}),
+          t("card.confirm")
+        ] })
+      ] })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-run-actions", children: [
+      problem && !automationMissing && onViewProblem !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: () => onViewProblem(run), disabled: busy, children: t("run.viewProblem") }),
+      onAgain !== void 0 && canDelete && !problem && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: onAgain, disabled: busy || resolutionBusy === true, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlayIcon, {}),
+        t("card.runAgain")
+      ] }),
+      (!problem || automationMissing) && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: (event) => onReadd(run, event.currentTarget.getBoundingClientRect()), disabled: busy, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlusIcon, {}),
+        t("run.readd")
+      ] }),
+      canDelete && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-icon-button", type: "button", "aria-label": t("run.delete"), title: t("run.delete"), onClick: () => onConfirmDelete(run.id), disabled: busy, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(TrashIcon, {}) })
+    ] })
+  ] });
+}
+function AutomationView({
+  t,
+  useAutomationState,
+  refresh,
+  createAutomation,
+  updateAutomation,
+  mutateAutomation,
+  runNow,
+  markRunRead,
+  confirmRun,
+  retryRun,
+  deleteRun,
+  updateSettings,
+  loadModelCatalog: loadModelCatalog2,
+  openSession,
+  refreshSessions
+}) {
+  const state = useAutomationState((value) => value);
+  const [showCreate, setShowCreate] = (0, import_react2.useState)(false);
+  const [settingsOpen, setSettingsOpen] = (0, import_react2.useState)(false);
+  const [runNowTarget, setRunNowTarget] = (0, import_react2.useState)();
+  const [editingAutomation, setEditingAutomation] = (0, import_react2.useState)();
+  const [busyKey, setBusyKey] = (0, import_react2.useState)();
+  const [actionError, setActionError] = (0, import_react2.useState)();
+  const [confirmDeleteId, setConfirmDeleteId] = (0, import_react2.useState)();
+  const [confirmDeleteRunId, setConfirmDeleteRunId] = (0, import_react2.useState)();
+  const [sortKey, setSortKey] = (0, import_react2.useState)(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.key ?? "created");
+  const [sortDirection, setSortDirection] = (0, import_react2.useState)(() => readSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY)?.direction ?? "desc");
+  const [focusedRunId, setFocusedRunId] = (0, import_react2.useState)();
+  const [taskView, setTaskView] = (0, import_react2.useState)("today");
+  const [rangeView, setRangeView] = (0, import_react2.useState)(() => {
+    return readRangeDefault(SORT_STORAGE, WORKSPACE_RANGE_DEFAULT_KEY);
+  });
+  const [calendarCursor, setCalendarCursor] = (0, import_react2.useState)();
+  const [selectedDate, setSelectedDate] = (0, import_react2.useState)();
+  const [draft, setDraft] = (0, import_react2.useState)(void 0);
+  const [draftClosePrompt, setDraftClosePrompt] = (0, import_react2.useState)(false);
+  const [formSeed, setFormSeed] = (0, import_react2.useState)(0);
+  const draftRef = (0, import_react2.useRef)({ form: void 0 });
+  const createAnchorRef = (0, import_react2.useRef)(void 0);
+  const editAnchorRef = (0, import_react2.useRef)(void 0);
+  const runNowAnchorRef = (0, import_react2.useRef)(void 0);
+  const settingsAnchorRef = (0, import_react2.useRef)(void 0);
+  const runsSignatureRef = (0, import_react2.useRef)("");
+  (0, import_react2.useEffect)(() => startRefreshLoop(refresh, {
+    intervalMs: POLL_INTERVAL_MS,
+    retryMs: RETRY_FAST_MS,
+    isVisible: () => !document.hidden,
+    subscribeVisibility: (listener) => {
+      document.addEventListener("visibilitychange", listener);
+      return () => {
+        document.removeEventListener("visibilitychange", listener);
+      };
+    }
+  }), [refresh]);
+  const snapshot = state.snapshot;
+  (0, import_react2.useEffect)(() => {
+    const signature = (snapshot?.runs ?? []).map((run) => `${run.id}:${run.status}`).join("|");
+    if (signature !== runsSignatureRef.current) {
+      runsSignatureRef.current = signature;
+      void refreshSessions().catch(() => void 0);
+    }
+  }, [snapshot?.runs, refreshSessions]);
+  const draftKey = snapshot === void 0 ? void 0 : `dsh-automation.draft.workspace.${snapshot.scope.workspaceId ?? "local"}`;
+  (0, import_react2.useEffect)(() => {
+    setDraft(draftKey === void 0 ? void 0 : readDraft(SORT_STORAGE, draftKey));
+  }, [draftKey]);
+  const trackDraft = (0, import_react2.useCallback)((form) => {
+    draftRef.current.form = form;
+  }, []);
+  const saveDraft = (0, import_react2.useCallback)((form) => {
+    draftRef.current.form = form;
+    return draftKey !== void 0 && writeDraft(SORT_STORAGE, draftKey, form);
+  }, [draftKey]);
+  const flushDraft = (0, import_react2.useCallback)(() => {
+    const form = draftRef.current.form;
+    if (draftKey !== void 0 && form !== void 0) writeDraft(SORT_STORAGE, draftKey, form);
+  }, [draftKey]);
+  (0, import_react2.useEffect)(() => {
+    window.addEventListener("pagehide", flushDraft);
+    return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      flushDraft();
+    };
+  }, [flushDraft]);
+  const hasDraftContent = () => {
+    const form = draftRef.current.form;
+    return form !== void 0 && (form.name.trim() !== "" || form.prompt.trim() !== "");
+  };
+  const closeCreate = () => {
+    if (hasDraftContent()) setDraftClosePrompt(true);
+    else setShowCreate(false);
+  };
+  const closeCreateKeep = () => {
+    setDraftClosePrompt(false);
+    setShowCreate(false);
+  };
+  const closeCreateDiscard = () => {
+    if (draftKey !== void 0) clearDraft(SORT_STORAGE, draftKey);
+    draftRef.current.form = void 0;
+    setDraft(void 0);
+    setDraftClosePrompt(false);
+    setShowCreate(false);
+  };
+  const stats = (0, import_react2.useMemo)(() => snapshot === void 0 ? void 0 : deriveOverview(snapshot), [snapshot]);
+  const now = (0, import_react2.useMemo)(() => new Date(snapshot?.serverNow ?? Date.now()), [snapshot?.serverNow]);
+  const automations = (0, import_react2.useMemo)(() => {
+    if (snapshot === void 0) return [];
+    const normalized = snapshot.automations.map((automation) => {
+      const next = automation.nextRunAt ?? (automation.status === "paused" ? plannedNextRun(automation.schedule, automation.createdAt, now) : void 0);
+      return next === void 0 ? automation : { ...automation, nextRunAt: next };
+    });
+    return sortAutomations(normalized, sortKey, sortDirection);
+  }, [snapshot, now, sortDirection, sortKey]);
+  const doneCount = (0, import_react2.useMemo)(() => snapshot === void 0 ? 0 : snapshot.automations.filter(isFulfilledAutomation).length, [snapshot]);
+  const activeCount = (0, import_react2.useMemo)(() => automations.filter((item) => item.status === "active" && !isFulfilledAutomation(item)).length, [automations]);
+  const pausedCount = (0, import_react2.useMemo)(() => automations.filter((item) => item.status === "paused").length, [automations]);
+  const todayStart = (0, import_react2.useMemo)(() => startOfLocalDay(now), [now]);
+  const taskCalendar = (0, import_react2.useMemo)(() => buildTaskCalendar(automations, snapshot?.runs ?? []), [automations, snapshot?.runs]);
+  const activeRunIds = (0, import_react2.useMemo)(() => new Set(snapshot?.runs.filter((run) => run.status === "queued" || run.status === "running").map((run) => run.automationId)), [snapshot?.runs]);
+  const buildDayList = (day) => {
+    const tasks = taskCalendar.days.get(calendarDateKey(day)) ?? [];
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    return sortAutomations(tasks, sortKey, sortDirection).map((task) => byId.get(task.id));
+  };
+  const todayAutomations = (0, import_react2.useMemo)(
+    () => buildDayList(todayStart),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [taskCalendar, sortDirection, sortKey, todayStart]
+  );
+  const todayPendingCount = (0, import_react2.useMemo)(() => todayAutomations.filter((task) => calendarTaskKind(task) !== "executed").length, [todayAutomations]);
+  const calendarAnchor = calendarCursor ?? startOfLocalWeek(todayStart);
+  const pickedDate = selectedDate ?? todayStart;
+  const weekDays = (0, import_react2.useMemo)(() => buildWeekCalendarDays(calendarAnchor), [calendarAnchor]);
+  const monthDays = (0, import_react2.useMemo)(() => buildMonthCalendarGrid(calendarAnchor), [calendarAnchor]);
+  const calendarTitleDate = rangeView === "week" ? weekDays[3] ?? calendarAnchor : calendarAnchor;
+  const calendarTitleYear = calendarTitleDate.getFullYear();
+  const calendarTitleMonth = calendarTitleDate.getMonth() + 1;
+  const dayAutomations = (0, import_react2.useMemo)(
+    () => buildDayList(pickedDate),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [taskCalendar, pickedDate, sortDirection, sortKey]
+  );
+  const visibleAutomations = (0, import_react2.useMemo)(() => {
+    if (taskView === "today") return todayAutomations;
+    if (rangeView === "list") return taskCalendar.all;
+    const focused = focusedRunId === void 0 ? void 0 : taskForRun(automations, snapshot?.runs ?? [], focusedRunId);
+    if (focused === void 0 || focused.calendarDate !== calendarDateKey(pickedDate)) return dayAutomations;
+    return dayAutomations.some((item) => item.id === focused.id) ? dayAutomations.map((item) => item.id === focused.id ? focused : item) : [...dayAutomations, focused];
+  }, [dayAutomations, rangeView, taskView, todayAutomations, taskCalendar, focusedRunId, automations, snapshot?.runs, pickedDate]);
+  (0, import_react2.useEffect)(() => {
+    if (focusedRunId === void 0 || taskView !== "all" || rangeView === "list") return;
+    const target = taskForRun(automations, snapshot?.runs ?? [], focusedRunId);
+    if (target === void 0 || target.calendarDate !== calendarDateKey(pickedDate)) return;
+    const card = document.getElementById(`dsh-automation-task-${target.id}`);
+    card?.scrollIntoView({ block: "nearest" });
+    card?.focus({ preventScroll: true });
+  }, [focusedRunId, taskView, rangeView, pickedDate]);
+  const onViewProblem = (run) => {
+    const date = startOfLocalDay(new Date(run.retryScheduledFor ?? run.scheduledFor));
+    setTaskView("all");
+    if (rangeView === "list") setRangeView("week");
+    setSelectedDate(date);
+    setCalendarCursor(rangeView === "month" ? new Date(date.getFullYear(), date.getMonth(), 1) : startOfLocalWeek(date));
+    setFocusedRunId(run.id);
+  };
+  const visiblePending = (0, import_react2.useMemo)(() => visibleAutomations.filter((automation) => calendarTaskKind(automation) !== "executed"), [visibleAutomations]);
+  const visibleExecuted = (0, import_react2.useMemo)(() => visibleAutomations.filter((automation) => calendarTaskKind(automation) === "executed"), [visibleAutomations]);
+  const automationIdSet = (0, import_react2.useMemo)(() => new Set((snapshot?.automations ?? []).map((item) => item.id)), [snapshot]);
+  const selectRange = (range) => {
+    setRangeView(range);
+    if (SORT_STORAGE !== void 0) {
+      try {
+        SORT_STORAGE.setItem(WORKSPACE_RANGE_DEFAULT_KEY, range);
+      } catch {
+      }
+    }
+    if (range === "week") setCalendarCursor(startOfLocalWeek(pickedDate));
+    if (range === "month") setCalendarCursor(new Date(pickedDate.getFullYear(), pickedDate.getMonth(), 1));
+  };
+  const moveCalendar = (delta) => {
+    if (rangeView === "week") {
+      setCalendarCursor(startOfLocalWeek(new Date(
+        calendarAnchor.getFullYear(),
+        calendarAnchor.getMonth(),
+        calendarAnchor.getDate() + delta * 7
+      )));
+    } else {
+      setCalendarCursor(new Date(calendarAnchor.getFullYear(), calendarAnchor.getMonth() + delta, 1));
+    }
+  };
+  const goCalendarToday = () => {
+    setSelectedDate(todayStart);
+    setCalendarCursor(rangeView === "week" ? startOfLocalWeek(todayStart) : new Date(todayStart.getFullYear(), todayStart.getMonth(), 1));
+  };
+  const selectDay = (day) => {
+    setSelectedDate(startOfLocalDay(day));
+  };
+  const changeCalendarYear = (year) => {
+    const base = new Date(year, calendarTitleMonth - 1, 1);
+    setCalendarCursor(rangeView === "week" ? startOfLocalWeek(base) : base);
+    setSelectedDate(startOfLocalDay(base));
+  };
+  const changeCalendarMonth = (month) => {
+    const base = new Date(calendarTitleYear, month - 1, 1);
+    setCalendarCursor(rangeView === "week" ? startOfLocalWeek(base) : base);
+    setSelectedDate(startOfLocalDay(base));
+  };
+  const openCreate = (event) => {
+    setEditingAutomation(void 0);
+    if (showCreate) {
+      closeCreate();
+      return;
+    }
+    createAnchorRef.current = event.currentTarget.getBoundingClientRect();
+    if (draftKey !== void 0) setDraft(readDraft(SORT_STORAGE, draftKey));
+    setShowCreate(true);
+  };
+  const toggleCreate = (event) => {
+    setEditingAutomation(void 0);
+    if (showCreate) {
+      closeCreate();
+      return;
+    }
+    createAnchorRef.current = event.currentTarget.getBoundingClientRect();
+    if (draftKey !== void 0) setDraft(readDraft(SORT_STORAGE, draftKey));
+    setShowCreate(true);
+  };
+  const selectSort = (key, direction) => {
+    setSortKey(key);
+    setSortDirection(direction);
+    if (SORT_STORAGE !== void 0) writeSortDefault(SORT_STORAGE, WORKSPACE_SORT_DEFAULT_KEY, key, direction);
+  };
+  const perform = async (key, action) => {
+    setBusyKey(key);
+    setActionError(void 0);
+    try {
+      await action();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : t("error.action"));
+    } finally {
+      setBusyKey(void 0);
+    }
+  };
+  const onMutate = (id, mutation) => {
+    void perform(actionKey(mutation, id), async () => {
+      await mutateAutomation(id, mutation);
+      if (mutation === "delete") {
+        setConfirmDeleteId(void 0);
+        if (editingAutomation?.id === id) setEditingAutomation(void 0);
+      }
+    });
+  };
+  const onRun = (automation, anchor) => {
+    setRunNowTarget(automation);
+    runNowAnchorRef.current = anchor;
+  };
+  const onRunNow = async (automationId, mode) => {
+    let started = false;
+    await perform(actionKey("run", automationId), async () => {
+      await runNow(automationId, mode);
+      started = true;
+    });
+    if (started) setRunNowTarget(void 0);
+  };
+  const onOpenSession = (runId, sessionId) => {
+    void perform(actionKey("run", runId), () => openSession(runId, sessionId));
+  };
+  const onResolve = snapshot?.runResolutionSupported === true && confirmRun !== void 0 && retryRun !== void 0 ? (runId, action) => {
+    void perform(actionKey(action, runId), () => action === "confirm" ? confirmRun(runId) : retryRun(runId));
+  } : void 0;
+  const onMarkRead = (runId) => {
+    void perform(actionKey("read", runId), () => markRunRead(runId));
+  };
+  const onReaddRun = (run, anchor) => {
+    const automation = snapshot?.automations.find((item) => item.id === run.automationId);
+    const form = automation !== void 0 ? formStateFromAutomation(automation) : {
+      ...defaultFormState(),
+      prompt: run.promptSnapshot ?? "",
+      provider: run.provider ?? null,
+      model: run.model ?? null,
+      reasoningEffort: run.reasoningEffort ?? null,
+      permission: run.permission ?? "read-only"
+    };
+    createAnchorRef.current = anchor;
+    if (draftKey !== void 0) writeDraft(SORT_STORAGE, draftKey, form);
+    draftRef.current.form = form;
+    setDraft(form);
+    setDraftClosePrompt(false);
+    setEditingAutomation(void 0);
+    setFormSeed((value) => value + 1);
+    setShowCreate(true);
+  };
+  const onDeleteRun = (runId) => {
+    void perform(actionKey("delete-run", runId), async () => {
+      await deleteRun(runId);
+      setConfirmDeleteRunId(void 0);
+    });
+  };
+  const onCreate = async (input) => {
+    await perform(actionKey("create"), async () => {
+      await createAutomation(input);
+      if (draftKey !== void 0) clearDraft(SORT_STORAGE, draftKey);
+      draftRef.current.form = void 0;
+      setDraft(void 0);
+      setDraftClosePrompt(false);
+      setShowCreate(false);
+    });
+  };
+  const onUpdate = async (input) => {
+    const automation = editingAutomation;
+    if (automation === void 0) return;
+    await perform(actionKey("update", automation.id), async () => {
+      await updateAutomation(automation.id, automation.revision, input);
+      setEditingAutomation(void 0);
+    });
+  };
+  const onEdit = (automation, anchor) => {
+    setShowCreate(false);
+    setConfirmDeleteId(void 0);
+    editAnchorRef.current = anchor;
+    setEditingAutomation(automation);
+  };
+  const openSettings = (event) => {
+    if (settingsOpen) {
+      setSettingsOpen(false);
+      return;
+    }
+    setEditingAutomation(void 0);
+    settingsAnchorRef.current = event.currentTarget.getBoundingClientRect();
+    setSettingsOpen(true);
+  };
+  const onSaveSettings = async (next) => {
+    let saved = false;
+    await perform(actionKey("settings"), async () => {
+      await updateSettings(next);
+      saved = true;
+    });
+    if (saved) setSettingsOpen(false);
+  };
+  if (snapshot === void 0 && (state.phase === "idle" || state.phase === "loading")) {
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-shell dsh-automation-centered", "data-conversation-composer-overlay": "", role: "status", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-loader", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationIcon, {}) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("loading") })
+    ] });
+  }
+  if (snapshot === void 0 && state.phase === "unavailable") {
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-shell dsh-automation-centered", "data-conversation-composer-overlay": "", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-error-icon", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationIcon, {}) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: t("unavailable.title") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("unavailable.body") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", onClick: () => {
+        void refresh().catch(() => void 0);
+      }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RefreshIcon, {}),
+        t("error.retry")
+      ] })
+    ] });
+  }
+  if (snapshot === void 0) {
+    return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-shell dsh-automation-centered", "data-conversation-composer-overlay": "", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-error-icon", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AlertIcon, {}) }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: t("error.title") }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: state.refreshAfterMutationFailed ? t("error.savedRefresh") : state.error }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", onClick: () => {
+        void refresh().catch(() => void 0);
+      }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RefreshIcon, {}),
+        t("error.retry")
+      ] })
+    ] });
+  }
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-shell", "data-conversation-composer-overlay": "", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("header", { className: "dsh-automation-header", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-header-row", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-header-box", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-header-title", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-logo", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationIcon, {}) }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h1", { children: t("header.title") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-header-divider", "aria-hidden": "true" }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("header.subtitle") })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-header-meta-divider", "aria-hidden": "true" }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-header-meta", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: t("scope.workspace") }),
+          snapshot.scope.workspaceName ?? snapshot.scope.workspaceId ?? "\u2014"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { children: t("scope.folder") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("code", { title: snapshot.scope.cwd, children: snapshot.scope.cwd })
+        ] })
+      ] })
+    ] }) }) }),
+    showCreate && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(AutomationFloat, { label: t("form.title"), busy: busyKey === actionKey("create"), onClose: closeCreate, anchor: createAnchorRef.current, children: [
+      draftClosePrompt && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-draft-prompt", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("form.draftPrompt") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: closeCreateKeep, children: t("form.draftKeep") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: closeCreateDiscard, children: t("form.draftDiscard") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", onClick: () => setDraftClosePrompt(false), children: t("form.draftEdit") })
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        AutomationForm,
+        {
+          mode: "create",
+          initial: draft,
+          onSaveDraft: saveDraft,
+          onDraftChange: trackDraft,
+          onFlushDraft: flushDraft,
+          t,
+          busy: busyKey === actionKey("create"),
+          loadModelCatalog: loadModelCatalog2,
+          onCancel: closeCreate,
+          onSubmit: onCreate
+        },
+        `create:${formSeed}`
+      )
+    ] }),
+    editingAutomation !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationFloat, { label: t("form.editTitle"), busy: busyKey === actionKey("update", editingAutomation.id), onClose: () => setEditingAutomation(void 0), anchor: editAnchorRef.current, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      AutomationForm,
+      {
+        mode: "edit",
+        automation: editingAutomation,
+        t,
+        busy: busyKey === actionKey("update", editingAutomation.id),
+        loadModelCatalog: loadModelCatalog2,
+        onCancel: () => setEditingAutomation(void 0),
+        onSubmit: onUpdate
+      },
+      `${editingAutomation.id}:${editingAutomation.revision}`
+    ) }),
+    settingsOpen && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationFloat, { label: t("settings.title"), busy: busyKey === actionKey("settings"), onClose: () => setSettingsOpen(false), anchor: settingsAnchorRef.current, children: snapshot.settings === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-create", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-create-heading", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: t("settings.title") }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--ghost", type: "button", onClick: () => setSettingsOpen(false), children: t("form.cancel") })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: "dsh-automation-settings-lead", children: t("settings.unavailable") })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      AutomationSettingsPanel,
+      {
+        t,
+        settings: snapshot.settings,
+        busy: busyKey === actionKey("settings"),
+        saveError: actionError,
+        onCancel: () => setSettingsOpen(false),
+        onSubmit: onSaveSettings
+      }
+    ) }),
+    runNowTarget !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+      AutomationFloat,
+      {
+        label: t("run.title"),
+        busy: busyKey === actionKey("run", runNowTarget.id),
+        onClose: () => setRunNowTarget(void 0),
+        anchor: runNowAnchorRef.current,
+        height: FLOAT_MIN_HEIGHT,
+        children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          AutomationRunDialog,
+          {
+            t,
+            automation: runNowTarget,
+            busy: busyKey === actionKey("run", runNowTarget.id),
+            onCancel: () => setRunNowTarget(void 0),
+            onRun: onRunNow
+          }
+        )
+      }
+    ),
+    (actionError !== void 0 || state.error !== void 0 && state.phase !== "unavailable") && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-inline-error", role: "alert", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AlertIcon, {}),
+      actionError ?? (state.refreshAfterMutationFailed ? t("error.savedRefresh") : state.error)
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-content", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: "dsh-automation-main-column", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-status-toolbar", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-toolbar-row", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-view-switch", role: "group", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: taskView === "today" ? "is-selected" : "", "aria-pressed": taskView === "today", onClick: () => setTaskView("today"), children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("view.todayTasks") }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: todayPendingCount })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: taskView === "all" ? "is-selected" : "", "aria-pressed": taskView === "all", onClick: () => setTaskView("all"), children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("view.allTasks") }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: Math.max(0, automations.length - doneCount) })
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-status-summary", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-status-column", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-status-item", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: t("stats.active") }),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("em", { children: activeCount })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-status-item", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: t("stats.paused") }),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("em", { children: pausedCount })
+                ] })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-status-column", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-status-item", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: t("stats.executed") }),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("em", { children: doneCount })
+                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-status-item", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: t("stats.next") }),
+                  /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("em", { children: stats?.nextRunAt === void 0 ? t("stats.noneScheduled") : formatRelativeTime(stats.nextRunAt, now, t) })
+                ] })
+              ] })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-toolbar-actions", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", onClick: toggleCreate, children: showCreate ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PauseIcon, {}),
+                t("header.closeCreate")
+              ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlusIcon, {}),
+                t("header.create")
+              ] }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-refresh-button", type: "button", "aria-label": t("section.refresh"), title: t("section.refresh"), onClick: () => {
+                void refresh().catch(() => void 0);
+              }, disabled: state.phase === "loading", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(RefreshIcon, {}) })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-toolbar-bottom", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-toolbar-controls", children: [
+            taskView === "all" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-range-switch", role: "group", "aria-label": t("view.allTasks"), children: ["week", "month", "list"].map((range) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: rangeView === range ? "is-selected" : "", "aria-pressed": rangeView === range, onClick: () => selectRange(range), children: t(`view.${range}`) }, range)) }),
+            taskView === "all" && rangeView !== "list" && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-cal-nav", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-cal-nav-btn", type: "button", onClick: goCalendarToday, children: t("view.today") }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-cal-nav-btn", type: "button", "aria-label": "prev", onClick: () => moveCalendar(-1), children: "\u25C0" }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-cal-title-box", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("select", { className: "dsh-automation-cal-title-select", value: calendarTitleYear, "aria-label": t("calendar.year"), onChange: (event) => changeCalendarYear(Number(event.currentTarget.value)), children: Array.from({ length: 7 }, (_, index) => todayStart.getFullYear() - 3 + index).map((year) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("option", { value: year, children: year }, year)) }),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("select", { className: "dsh-automation-cal-title-select", value: calendarTitleMonth, "aria-label": t("calendar.month"), onChange: (event) => changeCalendarMonth(Number(event.currentTarget.value)), children: Array.from({ length: 12 }, (_, index) => index + 1).map((month) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("option", { value: month, children: [
+                  month,
+                  "\u6708"
+                ] }, month)) })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-cal-nav-btn", type: "button", "aria-label": "next", onClick: () => moveCalendar(1), children: "\u25B6" })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-sort-group", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-sort-switch", role: "group", "aria-label": t("sort.by"), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: sortKey === "planned" ? "is-selected" : "", "aria-pressed": sortKey === "planned", onClick: () => selectSort("planned", sortDirection), children: t("sort.planned") }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: sortKey === "created" ? "is-selected" : "", "aria-pressed": sortKey === "created", onClick: () => selectSort("created", sortDirection), children: t("sort.created") }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-sort-sep", "aria-hidden": "true" }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: sortDirection === "asc" ? "is-selected" : "", "aria-pressed": sortDirection === "asc", onClick: () => selectSort(sortKey, "asc"), children: t("sort.asc") }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: sortDirection === "desc" ? "is-selected" : "", "aria-pressed": sortDirection === "desc", onClick: () => selectSort(sortKey, "desc"), children: t("sort.desc") })
+            ] }) })
+          ] }) }),
+          taskView === "all" && rangeView !== "list" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-toolbar-calendar", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-calendar", children: rangeView === "week" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-cal-week", children: weekDays.map((day) => {
+            const counts = calendarCounts(taskCalendar.days.get(calendarDateKey(day)) ?? []);
+            const executed = counts.executed;
+            const weekday = day.getDay() === 0 ? 7 : day.getDay();
+            return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: `dsh-automation-cal-day${isSameLocalDay(day, todayStart) ? " is-today" : ""}${isSameLocalDay(day, pickedDate) ? " is-selected" : ""}`, onClick: () => selectDay(day), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-weekday", children: t(`day.${weekday}`) }),
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-cal-date", children: [
+                day.getMonth() + 1,
+                "/",
+                day.getDate()
+              ] }),
+              counts.active > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count", children: t("calendar.taskCount", { count: counts.active }) }),
+              counts.paused > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count dsh-automation-cal-count--paused", children: t("calendar.pausedCount", { count: counts.paused }) }),
+              executed > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count dsh-automation-cal-count--executed", children: t("calendar.executedCount", { count: executed }) }),
+              counts.attention > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count dsh-automation-cal-count--attention", children: t("calendar.attentionCount", { count: counts.attention }) }),
+              counts.running > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count", children: t("calendar.runningCount", { count: counts.running }) })
+            ] }, day.toISOString());
+          }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-cal-month", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-cal-month-weekdays", children: WEEKDAYS.map((day) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t(`calendar.dow.${day}`) }, day)) }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-cal-month-grid", children: monthDays.map((day) => {
+              const counts = calendarCounts(taskCalendar.days.get(calendarDateKey(day)) ?? []);
+              const executed = counts.executed;
+              const otherMonth = day.getMonth() !== calendarAnchor.getMonth();
+              return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: `dsh-automation-cal-month-day${otherMonth ? " is-other" : ""}${isSameLocalDay(day, todayStart) ? " is-today" : ""}${isSameLocalDay(day, pickedDate) ? " is-selected" : ""}`, onClick: () => selectDay(day), children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-month-date", children: day.getDate() }),
+                counts.active > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count", children: t("calendar.taskCount", { count: counts.active }) }),
+                counts.paused > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count dsh-automation-cal-count--paused", children: t("calendar.pausedCount", { count: counts.paused }) }),
+                executed > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count dsh-automation-cal-count--executed", children: t("calendar.executedCount", { count: executed }) }),
+                counts.attention > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count dsh-automation-cal-count--attention", children: t("calendar.attentionCount", { count: counts.attention }) }),
+                counts.running > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-cal-count", children: t("calendar.runningCount", { count: counts.running }) })
+              ] }, day.toISOString());
+            }) })
+          ] }) }) })
+        ] }),
+        automations.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-empty", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AutomationIcon, {}) }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: t("empty.title") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { children: t("empty.body") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", onClick: openCreate, children: showCreate ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PauseIcon, {}),
+            t("header.closeCreate")
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlusIcon, {}),
+            t("empty.action")
+          ] }) })
+        ] }) : visibleAutomations.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-empty", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CalendarIcon, {}) }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h3", { children: taskView === "today" ? t("empty.todayNone") : t("empty.dayNone") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", onClick: openCreate, children: showCreate ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PauseIcon, {}),
+            t("header.closeCreate")
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlusIcon, {}),
+            t("header.create")
+          ] }) })
+        ] }) : visiblePending.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-card-list", children: visiblePending.map((automation) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          AutomationCard,
+          {
+            automation,
+            now,
+            t,
+            busyKey,
+            confirmingDelete: confirmDeleteId === automation.id,
+            onConfirmDelete: setConfirmDeleteId,
+            onEdit,
+            onMutate,
+            onRun,
+            onResolve,
+            resolutionBusy: activeRunIds.has(automation.id),
+            onOpen: onOpenSession
+          },
+          automation.id
+        )) }),
+        visibleAutomations.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-empty dsh-automation-empty--footer", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: "dsh-automation-button dsh-automation-button--primary", type: "button", onClick: openCreate, children: showCreate ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PauseIcon, {}),
+          t("header.closeCreate")
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(PlusIcon, {}),
+          t("header.create")
+        ] }) }) }),
+        visibleExecuted.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-card-list", children: visibleExecuted.map((automation) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+          AutomationCard,
+          {
+            automation,
+            now,
+            t,
+            busyKey,
+            confirmingDelete: confirmDeleteId === automation.id,
+            onConfirmDelete: setConfirmDeleteId,
+            onEdit,
+            onMutate,
+            onRun,
+            onResolve,
+            resolutionBusy: activeRunIds.has(automation.id),
+            onOpen: onOpenSession
+          },
+          automation.id
+        )) })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("aside", { className: "dsh-automation-runs-column", children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-runs-panel", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: "dsh-automation-runs-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: t("section.runs") }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: `dsh-automation-runs-status${(stats?.attention ?? 0) > 0 ? " is-error" : ""}`, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: "dsh-automation-runs-status-label", children: t("stats.currentStatus") }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: "dsh-automation-runs-status-value", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("i", { className: "dsh-automation-runs-status-icon", "aria-hidden": "true", children: (stats?.attention ?? 0) > 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AlertIcon, {}) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(CheckIcon, {}) }),
+              (stats?.attention ?? 0) > 0 ? t("stats.attention") : t("stats.noAttention"),
+              (stats?.attention ?? 0) > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: stats?.attention ?? 0 })
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(
+            "button",
+            {
+              className: "dsh-automation-runs-settings",
+              type: "button",
+              onClick: openSettings,
+              children: [
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(GearIcon, {}),
+                /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: t("settings.open") })
+              ]
+            }
+          )
+        ] }),
+        snapshot.runs.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-runs-empty", children: t("runs.empty") }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: "dsh-automation-run-list", children: snapshot.runs.map((run) => {
+          const automationMissing = !automationIdSet.has(run.automationId);
+          return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            RecentRun,
+            {
+              run,
+              now,
+              t,
+              busy: busyKey === actionKey("run", run.id) || busyKey === actionKey("delete-run", run.id) || busyKey === actionKey("read", run.id) || busyKey === actionKey("confirm", run.id) || busyKey === actionKey("retry", run.id),
+              automationMissing,
+              confirmingDelete: confirmDeleteRunId === run.id,
+              onOpen: onOpenSession,
+              onViewProblem,
+              onResolve,
+              resolutionBusy: activeRunIds.has(run.automationId),
+              onAgain: automationMissing ? void 0 : () => onRun(automations.find((item) => item.id === run.automationId)),
+              onMarkRead,
+              onReadd: onReaddRun,
+              onConfirmDelete: setConfirmDeleteRunId,
+              onDelete: onDeleteRun
+            },
+            run.id
+          );
+        }) })
+      ] }) })
+    ] })
+  ] });
+}
+
+// src/client/locales.ts
+var NS = "dsh-automation";
+var en = {
+  tab: "Automations",
+  "error.savedRefresh": "The action completed, but the list could not refresh. Refresh before taking another action.",
+  "sidebar.open": "Open Automations",
+  "sidebar.tooltip": "New automation",
+  "sidebar.unavailable": "Start a conversation before opening Automations.",
+  "header.eyebrow": "Autonomous coding work",
+  "header.title": "Automation tasks",
+  "header.subtitle": "Schedule independent, auditable Agent automations for this workspace",
+  "header.create": "New automation",
+  "header.closeCreate": "Close form",
+  "scope.workspace": "Workspace:",
+  "scope.folder": "Working folder:",
+  "stats.total": "Total",
+  "stats.active": "Active",
+  "stats.next": "Next run",
+  "stats.attention": "Needs action",
+  "stats.currentStatus": "Current status:",
+  "stats.paused": "Paused",
+  "stats.executed": "Executed",
+  "calendar.attentionCount": "{count} need attention",
+  "calendar.runningCount": "{count} running",
+  "card.retry": "Retry",
+  "card.resultUnverified": "Result unverified",
+  "card.resultUnverifiedHint": "The run result could not be read. Open the conversation to verify the outcome before retrying.",
+  "card.dayRun": "Run for this date",
+  "stats.noneScheduled": "Not scheduled",
+  "stats.noAttention": "All clear",
+  "section.automations": "Workspace automations",
+  "section.automationsHint": "Each trigger opens a fresh DSH session with its own audit trail.",
+  "section.runs": "Run history",
+  "section.runsHint": "Latest execution state across this workspace.",
+  "settings.open": "Settings",
+  "settings.title": "Automation settings",
+  "settings.unavailable": "Settings are unavailable because the host snapshot does not carry them yet.",
+  "settings.save": "Save",
+  "settings.saving": "Saving\u2026",
+  "settings.missedRuns.title": "Missed-run catch-up",
+  "settings.missedRuns.lead": "When a task runs on schedule while the computer is off, choose skip or automatic replay after boot.",
+  "settings.missedRuns.strategy": "Catch-up policy",
+  "settings.missedRuns.strategyCatchUp": "Replay missed runs after boot; configure below",
+  "settings.missedRuns.strategySkip": "Do not replay after boot; mark as missed for manual runs",
+  "settings.missedRuns.skipBody": "Missed runs stay marked in the run history and are never executed automatically; you can run or re-add them manually there.",
+  "settings.missedRuns.waitLabel": "Replay wait time",
+  "settings.missedRuns.waitHint": "Booting within the wait replays the run right away; after the wait, the run is marked as missed. Choose Forever for no time limit.",
+  "settings.missedRuns.waitOpt.m30": "30 minutes",
+  "settings.missedRuns.waitOpt.h1": "1 hour",
+  "settings.missedRuns.waitOpt.h5": "5 hours",
+  "settings.missedRuns.waitOpt.h12": "12 hours",
+  "settings.missedRuns.waitOpt.h24": "24 hours",
+  "settings.missedRuns.waitOpt.forever": "Forever",
+  "settings.missedRuns.waitOpt.custom": "Custom",
+  "settings.missedRuns.waitUnitMin": "minutes",
+  "settings.missedRuns.maxLabel": "Max missed runs to replay",
+  "settings.missedRuns.times": "runs",
+  "settings.missedRuns.maxHint": "Each automation replays at most its most recent N missed runs so a long backlog cannot drain your quota (default 1, 1-1000).",
+  "settings.missedRuns.errorMax": "Replay count must be an integer between 1 and 1000.",
+  "settings.missedRuns.errorCustomWait": "Custom wait time must be an integer between 1 and 525600 minutes.",
+  "run.title": "Run now",
+  "run.ahead": "Run ahead (replaces this scheduled run)",
+  "run.aheadHint": "Runs immediately; on success this schedule is treated as done and will not fire at its planned time.",
+  "run.plain": "Run once only (schedule unchanged)",
+  "run.plainHint": "The planned time stays and still fires as scheduled; you can run manually any number of times before it.",
+  "run.noPlan": "This automation has no pending schedule, so only a plain manual run is available.",
+  "run.confirm": "Run",
+  "section.refresh": "Refresh",
+  "view.todayTasks": "Today",
+  "view.allTasks": "All tasks",
+  "view.list": "Overview",
+  "view.week": "Week",
+  "view.month": "Month",
+  "view.today": "Today",
+  "view.noToday": "No automations are scheduled for today.",
+  "calendar.weekTitle": "{year}/{month}",
+  "calendar.monthTitle": "{year}/{month}",
+  "calendar.year": "Year",
+  "calendar.month": "Month",
+  "calendar.taskCount": "{count} tasks",
+  "calendar.pausedCount": "{count} paused",
+  "calendar.executedCount": "{count} executed",
+  "calendar.dow.1": "Mon",
+  "calendar.dow.2": "Tue",
+  "calendar.dow.3": "Wed",
+  "calendar.dow.4": "Thu",
+  "calendar.dow.5": "Fri",
+  "calendar.dow.6": "Sat",
+  "calendar.dow.7": "Sun",
+  "calendar.emptyDay": "No automations are scheduled for this day.",
+  "sort.by": "Sort by",
+  "sort.planned": "Planned",
+  "sort.created": "Created",
+  "sort.asc": "Asc",
+  "sort.desc": "Desc",
+  "sort.created.desc": "Created \xB7 Newest",
+  "sort.created.asc": "Created \xB7 Oldest",
+  "sort.planned.asc": "Planned \xB7 Soonest",
+  "sort.planned.desc": "Planned \xB7 Latest",
+  "sort.default.saved": "Default",
+  "empty.title": "Put recurring coding work on autopilot",
+  "empty.body": "Define the task goal, run time and permission boundary; every run opens a new conversation in the workspace",
+  "empty.action": "Create your first automation",
+  "empty.todayNone": "No automations scheduled today",
+  "empty.dayNone": "No automations scheduled for this day",
+  "runs.empty": "No runs yet. Trigger an automation now or wait for its schedule.",
+  "form.title": "Create an automation",
+  "form.subtitle": "Please fill in the complete task prompt: new tasks do not inherit the current conversation",
+  "form.editTitle": "Edit automation",
+  "form.editSubtitle": "Review the complete prompt, schedule, and permission boundary before saving.",
+  "form.name": "Name",
+  "form.namePlaceholder": "Daily regression triage",
+  "form.prompt": "Task prompt",
+  "form.promptPlaceholder": "Review new test failures, identify the regression, and propose the smallest verified fix\u2026",
+  "form.model": "Model",
+  "form.followGlobal": "Follow global",
+  "form.followGlobalHint": "Resolve the live global selection when each run starts.",
+  "form.pinnedModelHint": "Keep this automation on the selected provider and model.",
+  "form.currentUnavailable": "Current (unavailable) \xB7 {provider}/{model}",
+  "form.reasoningEffort": "Reasoning effort",
+  "form.modelDefault": "Model default",
+  "form.modelDefaultValue": "Model default ({effort})",
+  "form.effortUnavailable": "Current (unavailable) \xB7 {effort}",
+  "form.reasoningFollowGlobal": "Reasoning follows the global selection.",
+  "form.reasoningHint": "Options are supplied by the selected model.",
+  "form.catalogLoading": "Loading model catalog\u2026",
+  "form.catalogError": "Model catalog unavailable: {message}",
+  "form.catalogFailure": "Could not load {provider}: {message}",
+  "form.catalogRetry": "Retry model catalog",
+  "form.schedule": "Schedule",
+  "form.once": "Once",
+  "form.interval": "Interval",
+  "form.daily": "Daily",
+  "form.weekly": "Weekly",
+  "form.runAt": "Run at",
+  "form.every": "Every",
+  "form.minutes": "minutes",
+  "form.time": "Time",
+  "form.days": "Days",
+  "form.timeZone": "Time zone",
+  "form.permission": "Permission boundary",
+  "form.readOnly": "Read only",
+  "form.readOnlyHint": "Inspect the workspace without changing files.",
+  "form.workspaceWrite": "Workspace write",
+  "form.workspaceWriteHint": "May edit files inside this workspace; approval is not inherited.",
+  "form.cancel": "Cancel",
+  "form.saveDraft": "Save draft",
+  "form.draftSaved": "Draft saved",
+  "form.draftPrompt": "Keep the saved draft before leaving?",
+  "form.draftKeep": "Keep draft",
+  "form.draftDiscard": "Discard draft",
+  "form.draftEdit": "Keep editing",
+  "form.submit": "Create automation",
+  "form.submitting": "Creating\u2026",
+  "form.save": "Save changes",
+  "form.saving": "Saving\u2026",
+  "form.error.name": "Enter a name.",
+  "form.error.prompt": "Enter a self-contained task prompt.",
+  "form.error.once": "Choose a valid future date and time.",
+  "form.error.interval": "Interval must be between 5 and 43,200 minutes.",
+  "form.error.weekdays": "Select at least one day.",
+  "form.error.model": "Choose Follow global or a complete provider and model target.",
+  "day.1": "Mon",
+  "day.2": "Tue",
+  "day.3": "Wed",
+  "day.4": "Thu",
+  "day.5": "Fri",
+  "day.6": "Sat",
+  "day.7": "Sun",
+  "status.active": "Active",
+  "status.paused": "Paused",
+  "status.queued": "Queued",
+  "status.running": "Running",
+  "status.succeeded": "Succeeded",
+  "status.failed": "Failed",
+  "status.skipped": "Skipped",
+  "status.cancelled": "Cancelled",
+  "status.interrupted": "Interrupted",
+  "card.nextRun": "Next",
+  "card.nextRunPaused": "Paused",
+  "card.lastRun": "Last",
+  "card.never": "Never run",
+  "card.permission.read-only": "Read only",
+  "card.permission.workspace-write": "Workspace write",
+  "card.modelGlobal": "Follow global",
+  "card.modelPinned": "{provider}/{model} \xB7 {effort}",
+  "schedule.onceAt": "Once \xB7 {time}",
+  "schedule.everyMinutes": "Every {count} minutes",
+  "schedule.dailyAt": "Daily \xB7 {time}",
+  "schedule.weeklyAt": "{days} \xB7 {time}",
+  "card.pause": "Pause",
+  "card.resume": "Resume",
+  "card.runNow": "Run now",
+  "card.runAgain": "Run again",
+  "card.executed": "Executed",
+  "card.edit": "Edit",
+  "card.viewPrompt": "View complete prompt",
+  "card.delete": "Delete",
+  "card.confirmDelete": "Delete automation?",
+  "card.confirmDeleteHint": "Run history is retained for audit.",
+  "card.confirm": "Confirm delete",
+  "card.cancel": "Cancel",
+  "run.trigger.schedule": "Scheduled",
+  "run.trigger.manual": "Manual",
+  "run.trigger.catch-up": "Catch-up",
+  "run.openSession": "Session {id}",
+  "run.sessionArchived": "Session archived \xB7 {id}",
+  "run.markRead": "Ignore reminder",
+  "run.viewProblem": "View problem",
+  "run.confirmAction": "Confirm",
+  "run.confirmResult": "Confirm result",
+  "run.confirmHint": "After checking the conversation, confirm that the result is correct. This marks the task and run as completed without running it again.",
+  "run.retryHint": "Retry the original input in a new conversation. Success resolves the original run; failure stays visible. Future scheduled runs are kept.",
+  "run.confirmed": "Result confirmed manually",
+  "run.retried": "Resolved by a successful retry",
+  "run.audit": "View original status and error",
+  "run.readd": "Add as new",
+  "run.delete": "Delete record",
+  "run.confirmDelete": "Delete this run record?",
+  "run.confirmDeleteHint": "Only the run record is deleted; the conversation it produced is kept.",
+  "run.automationDeleted": "Automation deleted",
+  "loading": "Loading automations\u2026",
+  "error.title": "Automations could not be loaded",
+  "error.retry": "Try again",
+  "error.action": "The action failed. Please try again.",
+  "unavailable.title": "This conversation has not started",
+  "unavailable.body": "Send a message in this conversation, or switch to a conversation that is already running. The automation panel recovers automatically.",
+  "time.now": "now",
+  "time.minuteAgo": "{count}m ago",
+  "time.hourAgo": "{count}h ago",
+  "time.dayAgo": "{count}d ago",
+  "time.inMinute": "in {count}m",
+  "time.inHour": "in {count}h",
+  "time.inDay": "in {count}d"
+};
+var zh = {
+  tab: "\u81EA\u52A8\u5316",
+  "error.savedRefresh": "\u64CD\u4F5C\u5DF2\u5B8C\u6210\uFF0C\u4F46\u5217\u8868\u5237\u65B0\u5931\u8D25\u3002\u8BF7\u5237\u65B0\u5217\u8868\u540E\u518D\u8FDB\u884C\u4E0B\u4E00\u6B21\u64CD\u4F5C\u3002",
+  "sidebar.open": "\u6253\u5F00\u81EA\u52A8\u5316",
+  "sidebar.tooltip": "\u65B0\u5EFA\u81EA\u52A8\u5316",
+  "sidebar.unavailable": "\u8BF7\u5148\u5F00\u59CB\u4E00\u4E2A\u5BF9\u8BDD\uFF0C\u518D\u6253\u5F00\u81EA\u52A8\u5316\u3002",
+  "header.eyebrow": "\u81EA\u4E3B\u7F16\u7801\u4EFB\u52A1",
+  "header.title": "\u81EA\u52A8\u5316\u4EFB\u52A1",
+  "header.subtitle": "\u4E3A\u5F53\u524D\u5DE5\u4F5C\u533A\u5B89\u6392\u72EC\u7ACB\u3001\u53EF\u5BA1\u8BA1\u7684 Agent \u81EA\u52A8\u5316\u4EFB\u52A1",
+  "header.create": "\u65B0\u5EFA\u81EA\u52A8\u5316",
+  "header.closeCreate": "\u6536\u8D77\u8868\u5355",
+  "scope.workspace": "\u5DE5\u4F5C\u533A\uFF1A",
+  "scope.folder": "\u5DE5\u4F5C\u76EE\u5F55\uFF1A",
+  "stats.total": "\u5168\u90E8",
+  "stats.active": "\u5DF2\u542F\u7528",
+  "stats.next": "\u4E0B\u6B21\u8FD0\u884C",
+  "stats.attention": "\u9700\u8981\u5904\u7406",
+  "stats.currentStatus": "\u5F53\u524D\u72B6\u6001\uFF1A",
+  "stats.paused": "\u5DF2\u6682\u505C",
+  "stats.executed": "\u5DF2\u6267\u884C",
+  "calendar.attentionCount": "{count} \u9700\u5173\u6CE8",
+  "calendar.runningCount": "{count} \u8FD0\u884C\u4E2D",
+  "card.retry": "\u91CD\u8BD5",
+  "card.resultUnverified": "\u7ED3\u679C\u5F85\u6838\u5B9E",
+  "card.resultUnverifiedHint": "\u8FD0\u884C\u7ED3\u679C\u8BFB\u53D6\u5931\u8D25\uFF0C\u8BF7\u5148\u6253\u5F00\u4F1A\u8BDD\u6838\u5B9E\u5B9E\u9645\u7ED3\u679C\uFF0C\u518D\u51B3\u5B9A\u662F\u5426\u91CD\u8BD5\u3002",
+  "card.dayRun": "\u672C\u65E5\u8FD0\u884C",
+  "stats.noneScheduled": "\u6682\u65E0\u8BA1\u5212",
+  "stats.noAttention": "\u4E00\u5207\u6B63\u5E38",
+  "section.automations": "\u5DE5\u4F5C\u533A\u81EA\u52A8\u5316",
+  "section.automationsHint": "\u6BCF\u6B21\u89E6\u53D1\u90FD\u4F1A\u521B\u5EFA\u4E00\u4E2A\u5168\u65B0\u7684 DSH Session\uFF0C\u5E76\u4FDD\u7559\u72EC\u7ACB\u5BA1\u8BA1\u8BB0\u5F55\u3002",
+  "section.runs": "\u8FD0\u884C\u8BB0\u5F55",
+  "section.runsHint": "\u5F53\u524D\u5DE5\u4F5C\u533A\u6700\u8FD1\u7684\u6267\u884C\u72B6\u6001\u3002",
+  "settings.open": "\u8BBE\u7F6E",
+  "settings.title": "\u81EA\u52A8\u5316\u8BBE\u7F6E",
+  "settings.unavailable": "\u8BBE\u7F6E\u6682\u4E0D\u53EF\u7528\uFF1A\u5BBF\u4E3B\u5FEB\u7167\u5C1A\u672A\u643A\u5E26\u8BBE\u7F6E\u9879\u3002",
+  "settings.save": "\u4FDD\u5B58",
+  "settings.saving": "\u4FDD\u5B58\u4E2D\u2026",
+  "settings.missedRuns.title": "\u9519\u8FC7\u4EFB\u52A1\u8865\u8DD1",
+  "settings.missedRuns.lead": "\u4EFB\u52A1\u6309\u8BA1\u5212\u65F6\u95F4\u8FD0\u884C\uFF0C\u7535\u8111\u672A\u5F00\u542F\u65F6\u53EF\u9009\u62E9\u8DF3\u8FC7\u6216\u5F00\u673A\u540E\u81EA\u52A8\u8865\u8DD1\u3002",
+  "settings.missedRuns.strategy": "\u8865\u8DD1\u7B56\u7565",
+  "settings.missedRuns.strategyCatchUp": "\u5F00\u673A\u540E\u81EA\u52A8\u8865\u8DD1\u9519\u8FC7\u4EFB\u52A1\uFF0C\u5728\u4E0B\u65B9\u8FDB\u884C\u53C2\u6570\u8BBE\u7F6E",
+  "settings.missedRuns.strategySkip": "\u5F00\u673A\u540E\u4E0D\u81EA\u52A8\u8865\u8DD1\uFF0C\u6807\u8BB0\u4E3A\u9519\u8FC7\uFF0C\u53EF\u624B\u52A8\u6267\u884C",
+  "settings.missedRuns.skipBody": "\u9519\u8FC7\u7684\u4EFB\u52A1\u5C06\u6807\u8BB0\u5728\u8FD0\u884C\u8BB0\u5F55\u4E2D\uFF0C\u4E0D\u518D\u81EA\u52A8\u6267\u884C\uFF1B\u53EF\u5728\u8FD0\u884C\u8BB0\u5F55\u4E2D\u624B\u52A8\u6267\u884C\u6216\u91CD\u65B0\u6DFB\u52A0\u3002",
+  "settings.missedRuns.waitLabel": "\u8865\u8DD1\u7B49\u5F85\u65F6\u95F4",
+  "settings.missedRuns.waitHint": '\u7B49\u5F85\u65F6\u95F4\u5185\u5F00\u673A\u5C06\u76F4\u63A5\u8865\u8DD1\uFF1B\u8D85\u8FC7\u7B49\u5F85\u65F6\u95F4\u540E\uFF0C\u5219\u6807\u8BB0\u4E3A\u9519\u8FC7\u4EFB\u52A1\u3002\u9009"\u6C38\u8FDC"\u5219\u4E0D\u8BBE\u65F6\u95F4\u4E0A\u9650\u3002',
+  "settings.missedRuns.waitOpt.m30": "30 \u5206\u949F",
+  "settings.missedRuns.waitOpt.h1": "1 \u5C0F\u65F6",
+  "settings.missedRuns.waitOpt.h5": "5 \u5C0F\u65F6",
+  "settings.missedRuns.waitOpt.h12": "12 \u5C0F\u65F6",
+  "settings.missedRuns.waitOpt.h24": "24 \u5C0F\u65F6",
+  "settings.missedRuns.waitOpt.forever": "\u6C38\u8FDC",
+  "settings.missedRuns.waitOpt.custom": "\u81EA\u5B9A\u4E49",
+  "settings.missedRuns.waitUnitMin": "\u5206\u949F",
+  "settings.missedRuns.maxLabel": "\u6700\u591A\u8865\u8DD1\u4EFB\u52A1\u6570",
+  "settings.missedRuns.times": "\u4E2A",
+  "settings.missedRuns.maxHint": "\u6BCF\u4E2A\u4EFB\u52A1\u6700\u591A\u8865\u8DD1\u6700\u8FD1 N \u4E2A\u9519\u8FC7\u7684\u4EFB\u52A1\uFF0C\u907F\u514D\u79EF\u538B\u8FC7\u591A\u6D88\u8017\u989D\u5EA6\uFF08\u9ED8\u8BA4 1 \u4E2A\uFF0C\u8303\u56F4 1\u20131000\uFF09\u3002",
+  "settings.missedRuns.errorMax": "\u8865\u8DD1\u4EFB\u52A1\u6570\u9700\u4E3A 1\u20131000 \u7684\u6574\u6570\u3002",
+  "settings.missedRuns.errorCustomWait": "\u81EA\u5B9A\u4E49\u7B49\u5F85\u65F6\u95F4\u9700\u4E3A 1\u2013525600 \u7684\u6574\u6570\uFF08\u5206\u949F\uFF09\u3002",
+  "run.title": "\u7ACB\u5373\u8FD0\u884C",
+  "run.ahead": "\u63D0\u524D\u6267\u884C\uFF08\u66FF\u4EE3\u672C\u6B21\u8BA1\u5212\uFF09",
+  "run.aheadHint": "\u9A6C\u4E0A\u8FD0\u884C\uFF0C\u6210\u529F\u540E\u672C\u6B21\u8BA1\u5212\u89C6\u4E3A\u5DF2\u5B8C\u6210\uFF0C\u5230\u70B9\u4E0D\u518D\u81EA\u52A8\u6267\u884C\u3002",
+  "run.plain": "\u4EC5\u624B\u52A8\u8FD0\u884C\u4E00\u6B21\uFF08\u8BA1\u5212\u4E0D\u53D8\uFF09",
+  "run.plainHint": "\u8BA1\u5212\u65F6\u95F4\u4E0D\u53D8\uFF0C\u5230\u70B9\u4ECD\u4F1A\u81EA\u52A8\u6267\u884C\uFF1B\u6B64\u524D\u53EF\u591A\u6B21\u624B\u52A8\u8FD0\u884C\u3002",
+  "run.noPlan": "\u8BE5\u4EFB\u52A1\u6682\u65E0\u5F85\u89E6\u53D1\u8BA1\u5212\uFF0C\u53EA\u80FD\u4EC5\u624B\u52A8\u8FD0\u884C\u4E00\u6B21\u3002",
+  "run.confirm": "\u8FD0\u884C",
+  "section.refresh": "\u5237\u65B0",
+  "view.todayTasks": "\u4ECA\u65E5\u4EFB\u52A1",
+  "view.allTasks": "\u5168\u90E8\u4EFB\u52A1",
+  "view.list": "\u603B\u89C8\u8868",
+  "view.week": "\u5468\u89C6\u56FE",
+  "view.month": "\u6708\u89C6\u56FE",
+  "view.today": "\u4ECA\u65E5",
+  "view.noToday": "\u4ECA\u5929\u6CA1\u6709\u5B89\u6392\u7684\u81EA\u52A8\u5316\u4EFB\u52A1\u3002",
+  "calendar.weekTitle": "{year}\u5E74{month}\u6708",
+  "calendar.monthTitle": "{year}\u5E74{month}\u6708",
+  "calendar.year": "\u5E74\u4EFD",
+  "calendar.month": "\u6708\u4EFD",
+  "calendar.taskCount": "{count} \u4E2A\u4EFB\u52A1",
+  "calendar.pausedCount": "{count} \u4E2A\u6682\u505C",
+  "calendar.executedCount": "{count} \u5DF2\u6267\u884C",
+  "calendar.dow.1": "\u4E00",
+  "calendar.dow.2": "\u4E8C",
+  "calendar.dow.3": "\u4E09",
+  "calendar.dow.4": "\u56DB",
+  "calendar.dow.5": "\u4E94",
+  "calendar.dow.6": "\u516D",
+  "calendar.dow.7": "\u65E5",
+  "calendar.emptyDay": "\u8FD9\u4E00\u5929\u6CA1\u6709\u5B89\u6392\u7684\u81EA\u52A8\u5316\u4EFB\u52A1\u3002",
+  "sort.by": "\u6392\u5E8F",
+  "sort.planned": "\u8BA1\u5212\u65F6\u95F4",
+  "sort.created": "\u521B\u5EFA\u65F6\u95F4",
+  "sort.asc": "\u5347\u5E8F",
+  "sort.desc": "\u964D\u5E8F",
+  "sort.created.desc": "\u521B\u5EFA\u65F6\u95F4 \xB7 \u65B0\u5230\u65E7",
+  "sort.created.asc": "\u521B\u5EFA\u65F6\u95F4 \xB7 \u65E7\u5230\u65B0",
+  "sort.planned.asc": "\u8BA1\u5212\u65F6\u95F4 \xB7 \u65E9\u5230\u665A",
+  "sort.planned.desc": "\u8BA1\u5212\u65F6\u95F4 \xB7 \u665A\u5230\u65E9",
+  "sort.default.saved": "\u9ED8\u8BA4",
+  "empty.title": "\u8BA9\u91CD\u590D\u7684\u7F16\u7801\u5DE5\u4F5C\u81EA\u52A8\u8FD0\u884C",
+  "empty.body": "\u8BBE\u7F6E\u4EFB\u52A1\u76EE\u6807\u3001\u8FD0\u884C\u65F6\u95F4\u548C\u6743\u9650\u8FB9\u754C\uFF0C\u6BCF\u6B21\u8FD0\u884C\u90FD\u4F1A\u5728\u5DE5\u4F5C\u533A\u5F00\u542F\u4E00\u4E2A\u65B0\u5BF9\u8BDD",
+  "empty.action": "\u521B\u5EFA\u7B2C\u4E00\u4E2A\u81EA\u52A8\u5316",
+  "empty.todayNone": "\u4ECA\u65E5\u6CA1\u6709\u5B89\u6392\u81EA\u52A8\u5316\u4EFB\u52A1",
+  "empty.dayNone": "\u8FD9\u4E00\u5929\u6CA1\u6709\u5B89\u6392\u81EA\u52A8\u5316\u4EFB\u52A1",
+  "runs.empty": "\u8FD8\u6CA1\u6709\u8FD0\u884C\u8BB0\u5F55\u3002\u4F60\u53EF\u4EE5\u7ACB\u5373\u8FD0\u884C\u4E00\u6B21\uFF0C\u6216\u7B49\u5F85\u8BA1\u5212\u89E6\u53D1\u3002",
+  "form.title": "\u521B\u5EFA\u81EA\u52A8\u5316",
+  "form.subtitle": "\u8BF7\u586B\u5199\u5B8C\u6574\u7684\u4EFB\u52A1\u6307\u4EE4\uFF0C\u65B0\u5EFA\u4EFB\u52A1\u4E0D\u7EE7\u627F\u5F53\u524D\u5BF9\u8BDD",
+  "form.editTitle": "\u7F16\u8F91\u81EA\u52A8\u5316",
+  "form.editSubtitle": "\u4FDD\u5B58\u524D\u53EF\u4EE5\u67E5\u770B\u5E76\u4FEE\u6539\u5B8C\u6574\u6307\u4EE4\u3001\u8FD0\u884C\u8BA1\u5212\u548C\u6743\u9650\u8FB9\u754C\u3002",
+  "form.name": "\u540D\u79F0",
+  "form.namePlaceholder": "\u6BCF\u65E5\u56DE\u5F52\u6D4B\u8BD5\u5206\u8BCA",
+  "form.prompt": "\u4EFB\u52A1\u6307\u4EE4",
+  "form.promptPlaceholder": "\u68C0\u67E5\u65B0\u589E\u6D4B\u8BD5\u5931\u8D25\uFF0C\u5B9A\u4F4D\u56DE\u5F52\u539F\u56E0\uFF0C\u5E76\u7ED9\u51FA\u7ECF\u8FC7\u9A8C\u8BC1\u7684\u6700\u5C0F\u4FEE\u590D\u65B9\u6848\u2026\u2026",
+  "form.model": "\u6A21\u578B",
+  "form.followGlobal": "\u8DDF\u968F\u5168\u5C40\u8BBE\u7F6E",
+  "form.followGlobalHint": "\u6BCF\u6B21\u8FD0\u884C\u5F00\u59CB\u65F6\u8BFB\u53D6\u5F53\u65F6\u7684\u5168\u5C40\u6A21\u578B\u8BBE\u7F6E\u3002",
+  "form.pinnedModelHint": "\u8BA9\u8FD9\u4E2A\u81EA\u52A8\u5316\u59CB\u7EC8\u4F7F\u7528\u6240\u9009\u670D\u52A1\u5546\u548C\u6A21\u578B\u3002",
+  "form.currentUnavailable": "\u5F53\u524D\u503C\uFF08\u5DF2\u4E0B\u67B6\uFF09\xB7 {provider}/{model}",
+  "form.reasoningEffort": "\u63A8\u7406\u7A0B\u5EA6",
+  "form.modelDefault": "\u6A21\u578B\u9ED8\u8BA4",
+  "form.modelDefaultValue": "\u6A21\u578B\u9ED8\u8BA4\uFF08{effort}\uFF09",
+  "form.effortUnavailable": "\u5F53\u524D\u503C\uFF08\u5DF2\u4E0B\u67B6\uFF09\xB7 {effort}",
+  "form.reasoningFollowGlobal": "\u63A8\u7406\u7A0B\u5EA6\u968F\u5168\u5C40\u6A21\u578B\u8BBE\u7F6E\u3002",
+  "form.reasoningHint": "\u9009\u9879\u7531\u5F53\u524D\u6A21\u578B\u63D0\u4F9B\u3002",
+  "form.catalogLoading": "\u6B63\u5728\u52A0\u8F7D\u6A21\u578B\u76EE\u5F55\u2026",
+  "form.catalogError": "\u6A21\u578B\u76EE\u5F55\u4E0D\u53EF\u7528\uFF1A{message}",
+  "form.catalogFailure": "\u65E0\u6CD5\u52A0\u8F7D {provider}\uFF1A{message}",
+  "form.catalogRetry": "\u91CD\u8BD5\u52A0\u8F7D\u6A21\u578B\u76EE\u5F55",
+  "form.schedule": "\u8FD0\u884C\u8BA1\u5212",
+  "form.once": "\u5355\u6B21",
+  "form.interval": "\u95F4\u9694",
+  "form.daily": "\u6BCF\u5929",
+  "form.weekly": "\u6BCF\u5468",
+  "form.runAt": "\u8FD0\u884C\u65F6\u95F4",
+  "form.every": "\u6BCF\u9694",
+  "form.minutes": "\u5206\u949F",
+  "form.time": "\u65F6\u95F4",
+  "form.days": "\u661F\u671F",
+  "form.timeZone": "\u65F6\u533A",
+  "form.permission": "\u6743\u9650\u8FB9\u754C",
+  "form.readOnly": "\u53EA\u8BFB",
+  "form.readOnlyHint": "\u53EF\u4EE5\u68C0\u67E5\u5DE5\u4F5C\u533A\uFF0C\u4F46\u4E0D\u4F1A\u4FEE\u6539\u6587\u4EF6\u3002",
+  "form.workspaceWrite": "\u53EF\u5199\u5DE5\u4F5C\u533A",
+  "form.workspaceWriteHint": "\u53EF\u4EE5\u4FEE\u6539\u5F53\u524D\u5DE5\u4F5C\u533A\u6587\u4EF6\uFF1B\u4E0D\u4F1A\u7EE7\u627F\u5386\u53F2\u6279\u51C6\u3002",
+  "form.cancel": "\u53D6\u6D88",
+  "form.saveDraft": "\u4FDD\u5B58\u8349\u7A3F",
+  "form.draftSaved": "\u8349\u7A3F\u5DF2\u4FDD\u5B58",
+  "form.draftPrompt": "\u9000\u51FA\u524D\u8981\u4FDD\u7559\u5DF2\u4FDD\u5B58\u7684\u8349\u7A3F\u5417\uFF1F",
+  "form.draftKeep": "\u4FDD\u7559\u8349\u7A3F\u5E76\u9000\u51FA",
+  "form.draftDiscard": "\u5220\u9664\u8349\u7A3F\u5E76\u9000\u51FA",
+  "form.draftEdit": "\u7EE7\u7EED\u7F16\u8F91",
+  "form.submit": "\u521B\u5EFA\u81EA\u52A8\u5316",
+  "form.submitting": "\u521B\u5EFA\u4E2D\u2026",
+  "form.save": "\u4FDD\u5B58\u4FEE\u6539",
+  "form.saving": "\u4FDD\u5B58\u4E2D\u2026",
+  "form.error.name": "\u8BF7\u8F93\u5165\u540D\u79F0\u3002",
+  "form.error.prompt": "\u8BF7\u8F93\u5165\u5B8C\u6574\u3001\u72EC\u7ACB\u7684\u4EFB\u52A1\u6307\u4EE4\u3002",
+  "form.error.once": "\u8BF7\u9009\u62E9\u6709\u6548\u7684\u672A\u6765\u65E5\u671F\u548C\u65F6\u95F4\u3002",
+  "form.error.interval": "\u8FD0\u884C\u95F4\u9694\u5FC5\u987B\u5728 5 \u5230 43,200 \u5206\u949F\u4E4B\u95F4\u3002",
+  "form.error.weekdays": "\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u5929\u3002",
+  "form.error.model": "\u8BF7\u9009\u62E9\u8DDF\u968F\u5168\u5C40\u8BBE\u7F6E\uFF0C\u6216\u540C\u65F6\u6307\u5B9A\u5B8C\u6574\u7684\u670D\u52A1\u5546\u548C\u6A21\u578B\u3002",
+  "day.1": "\u5468\u4E00",
+  "day.2": "\u5468\u4E8C",
+  "day.3": "\u5468\u4E09",
+  "day.4": "\u5468\u56DB",
+  "day.5": "\u5468\u4E94",
+  "day.6": "\u5468\u516D",
+  "day.7": "\u5468\u65E5",
+  "status.active": "\u5DF2\u542F\u7528",
+  "status.paused": "\u5DF2\u6682\u505C",
+  "status.queued": "\u6392\u961F\u4E2D",
+  "status.running": "\u8FD0\u884C\u4E2D",
+  "status.succeeded": "\u5DF2\u5B8C\u6210",
+  "status.failed": "\u5931\u8D25",
+  "status.skipped": "\u5DF2\u8DF3\u8FC7",
+  "status.cancelled": "\u5DF2\u53D6\u6D88",
+  "status.interrupted": "\u5DF2\u4E2D\u65AD",
+  "card.nextRun": "\u4E0B\u6B21",
+  "card.nextRunPaused": "\u5DF2\u6682\u505C",
+  "card.lastRun": "\u6700\u8FD1",
+  "card.never": "\u5C1A\u672A\u8FD0\u884C",
+  "card.permission.read-only": "\u53EA\u8BFB",
+  "card.permission.workspace-write": "\u53EF\u5199\u5DE5\u4F5C\u533A",
+  "card.modelGlobal": "\u8DDF\u968F\u5168\u5C40\u8BBE\u7F6E",
+  "card.modelPinned": "{provider}/{model} \xB7 {effort}",
+  "schedule.onceAt": "\u5355\u6B21 \xB7 {time}",
+  "schedule.everyMinutes": "\u6BCF {count} \u5206\u949F",
+  "schedule.dailyAt": "\u6BCF\u5929 \xB7 {time}",
+  "schedule.weeklyAt": "{days} \xB7 {time}",
+  "card.pause": "\u6682\u505C",
+  "card.resume": "\u6062\u590D",
+  "card.runNow": "\u7ACB\u5373\u8FD0\u884C",
+  "card.runAgain": "\u518D\u6B21\u6267\u884C",
+  "card.executed": "\u5DF2\u6267\u884C",
+  "card.edit": "\u7F16\u8F91",
+  "card.viewPrompt": "\u67E5\u770B\u5B8C\u6574\u6307\u4EE4",
+  "card.delete": "\u5220\u9664",
+  "card.confirmDelete": "\u786E\u8BA4\u5220\u9664\u8FD9\u4E2A\u81EA\u52A8\u5316\uFF1F",
+  "card.confirmDeleteHint": "\u8FD0\u884C\u5386\u53F2\u4F1A\u4FDD\u7559\u7528\u4E8E\u5BA1\u8BA1\u3002",
+  "card.confirm": "\u786E\u8BA4\u5220\u9664",
+  "card.cancel": "\u53D6\u6D88",
+  "run.trigger.schedule": "\u5B9A\u65F6",
+  "run.trigger.manual": "\u624B\u52A8",
+  "run.trigger.catch-up": "\u8865\u507F\u8FD0\u884C",
+  "run.openSession": "Session {id}",
+  "run.sessionArchived": "Session \u5DF2\u5F52\u6863 \xB7 {id}",
+  "run.markRead": "\u5FFD\u7565\u63D0\u9192",
+  "run.viewProblem": "\u67E5\u770B\u5F02\u5E38\u72B6\u6001",
+  "run.confirmAction": "\u786E\u8BA4",
+  "run.confirmResult": "\u786E\u8BA4\u65E0\u8BEF",
+  "run.confirmHint": "\u8BF7\u5148\u6838\u5BF9\u4F1A\u8BDD\u7ED3\u679C\u3002\u786E\u8BA4\u540E\u4EFB\u52A1\u548C\u8FD0\u884C\u8BB0\u5F55\u540C\u6B65\u6807\u8BB0\u4E3A\u5DF2\u6267\u884C\uFF0C\u4E0D\u4F1A\u518D\u6B21\u8FD0\u884C\u3002",
+  "run.retryHint": "\u6309\u539F\u8F93\u5165\u65B0\u5EFA\u4F1A\u8BDD\u91CD\u8BD5\u3002\u6210\u529F\u540E\u540C\u6B65\u5904\u7406\u539F\u8BB0\u5F55\uFF0C\u5931\u8D25\u7EE7\u7EED\u4FDD\u7559\u63D0\u9192\uFF0C\u4E0D\u5F71\u54CD\u540E\u7EED\u8BA1\u5212\u3002",
+  "run.confirmed": "\u5DF2\u4EBA\u5DE5\u786E\u8BA4\u65E0\u8BEF",
+  "run.retried": "\u91CD\u8BD5\u6210\u529F\uFF0C\u539F\u5F02\u5E38\u5DF2\u5904\u7406",
+  "run.audit": "\u67E5\u770B\u539F\u72B6\u6001\u548C\u9519\u8BEF",
+  "run.readd": "\u91CD\u65B0\u6DFB\u52A0",
+  "run.delete": "\u5220\u9664\u8BB0\u5F55",
+  "run.confirmDelete": "\u786E\u8BA4\u5220\u9664\u8FD9\u6761\u8FD0\u884C\u8BB0\u5F55\uFF1F",
+  "run.confirmDeleteHint": "\u53EA\u5220\u9664\u8FD0\u884C\u8BB0\u5F55\uFF0C\u5DF2\u4EA7\u751F\u7684\u4F1A\u8BDD\u4F1A\u4FDD\u7559\u3002",
+  "run.automationDeleted": "\u4EFB\u52A1\u5DF2\u5220\u9664",
+  loading: "\u6B63\u5728\u52A0\u8F7D\u81EA\u52A8\u5316\u2026",
+  "error.title": "\u65E0\u6CD5\u52A0\u8F7D\u81EA\u52A8\u5316",
+  "error.retry": "\u91CD\u8BD5",
+  "error.action": "\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002",
+  "unavailable.title": "\u5F53\u524D\u5BF9\u8BDD\u5C1A\u672A\u5F00\u59CB",
+  "unavailable.body": "\u8BF7\u5148\u5728\u5F53\u524D\u5BF9\u8BDD\u4E2D\u53D1\u9001\u4E00\u6761\u6D88\u606F\u5F00\u59CB\u5BF9\u8BDD\uFF08\u6216\u5207\u6362\u5230\u5DF2\u5F00\u59CB\u7684\u5BF9\u8BDD\uFF09\uFF0C\u81EA\u52A8\u5316\u9762\u677F\u4F1A\u81EA\u52A8\u6062\u590D\u3002",
+  "time.now": "\u521A\u521A",
+  "time.minuteAgo": "{count} \u5206\u949F\u524D",
+  "time.hourAgo": "{count} \u5C0F\u65F6\u524D",
+  "time.dayAgo": "{count} \u5929\u524D",
+  "time.inMinute": "{count} \u5206\u949F\u540E",
+  "time.inHour": "{count} \u5C0F\u65F6\u540E",
+  "time.inDay": "{count} \u5929\u540E"
+};
+
+// src/client/protocol.ts
+function unwrapRpcResult(value) {
+  if (typeof value !== "object" || value === null || !("ok" in value)) {
+    throw new Error("The automation host returned an invalid response.");
+  }
+  const result = value;
+  if (result.ok === true && "value" in result) return result.value;
+  if (result.ok === false && "error" in result) {
+    const error = result.error;
+    throw new Error(error?.message ?? "The automation request failed.");
+  }
+  throw new Error("The automation host returned an invalid response.");
+}
+
+// src/client/runtime.ts
+var CHANNEL = "/dsh-automation";
+function object(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function named(value) {
+  return object(value) && typeof value.id === "string" && value.id.trim() !== "" && typeof value.name === "string";
+}
+function model(value) {
+  if (!named(value) || value.description !== void 0 && typeof value.description !== "string") return false;
+  if (value.reasoning === void 0) return true;
+  const reasoning = value.reasoning;
+  return object(reasoning) && Array.isArray(reasoning.efforts) && reasoning.efforts.every((effort) => named(effort) && (effort.description === void 0 || typeof effort.description === "string")) && (reasoning.defaultEffort === void 0 || typeof reasoning.defaultEffort === "string");
+}
+async function loadModelCatalog(remote) {
+  const value = unwrapRpcResult(await remote.session.modelCatalog());
+  if (!object(value) || !Array.isArray(value.groups) || !Array.isArray(value.failures)) {
+    throw new Error("The model catalog returned an invalid response.");
+  }
+  let changed = false;
+  const failures = [];
+  for (const failure of value.failures) {
+    if (named(failure) && typeof failure.message === "string") {
+      failures.push({ id: failure.id, name: failure.name, message: failure.message });
+    } else {
+      changed = true;
+      failures.push({ id: "invalid-failure", name: "Model catalog", message: "The model catalog returned an invalid failure record." });
+    }
+  }
+  const groups = [];
+  for (const [index, group] of value.groups.entries()) {
+    if (!named(group) || !Array.isArray(group.models)) {
+      changed = true;
+      failures.push({
+        id: named(group) ? group.id : "invalid-provider-" + index,
+        name: named(group) ? group.name : "Model catalog",
+        message: "The provider returned an invalid model catalog."
+      });
+      continue;
+    }
+    const models = group.models.filter(model);
+    if (models.length !== group.models.length) {
+      changed = true;
+      failures.push({ id: group.id, name: group.name, message: "Some invalid model entries were omitted. You can retry loading this provider." });
+    }
+    groups.push({ id: group.id, name: group.name, models });
+  }
+  return changed ? { groups, failures } : value;
+}
+function createAutomationRuntime(rpc, sessionId) {
+  let state = { phase: "idle" };
+  let refreshPromise;
+  const listeners = /* @__PURE__ */ new Set();
+  let subscribed = false;
+  let committedMutation = false;
+  const publish = (next) => {
+    state = subscribed && listeners.size === 0 ? { phase: "idle" } : next;
+    for (const listener of [...listeners]) listener();
+  };
+  const source = {
+    getSnapshot: () => state,
+    subscribe: (listener) => {
+      subscribed = true;
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+        queueMicrotask(() => {
+          if (listeners.size === 0) state = { phase: "idle" };
+        });
+      };
+    }
+  };
+  const refresh = async () => {
+    if (refreshPromise !== void 0) return refreshPromise;
+    const previous = state.snapshot;
+    publish(previous === void 0 ? { phase: "loading" } : {
+      phase: "loading",
+      snapshot: previous,
+      ...state.refreshedAt === void 0 ? {} : { refreshedAt: state.refreshedAt }
+    });
+    refreshPromise = (async () => {
+      try {
+        const payload = { sessionId };
+        const response = await rpc.call(CHANNEL, "snapshot", payload);
+        const snapshot = unwrapRpcResult(response);
+        committedMutation = false;
+        publish({ phase: "ready", snapshot, refreshedAt: Date.now() });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const unavailable = /requires a live source session/.test(message);
+        const phase = unavailable ? "unavailable" : "error";
+        publish(previous === void 0 ? { phase, error: message, refreshAfterMutationFailed: committedMutation } : {
+          phase,
+          snapshot: previous,
+          error: message,
+          refreshAfterMutationFailed: committedMutation,
+          ...state.refreshedAt === void 0 ? {} : { refreshedAt: state.refreshedAt }
+        });
+        throw error;
+      } finally {
+        refreshPromise = void 0;
+      }
+    })();
+    return refreshPromise;
+  };
+  const mutateThenRefresh = async (endpoint, payload) => {
+    unwrapRpcResult(await rpc.call(CHANNEL, endpoint, payload));
+    const pendingBeforeRefresh = refreshPromise;
+    if (pendingBeforeRefresh !== void 0) await pendingBeforeRefresh.catch(() => void 0);
+    committedMutation = true;
+    await refresh().catch(() => void 0);
+  };
+  const markRunRead = async (runId) => {
+    const payload = { sessionId, runId };
+    await mutateThenRefresh("mark-read", payload);
+  };
+  const archiveRun = async (runId) => {
+    const payload = { sessionId, runId };
+    await mutateThenRefresh("archive-run", payload);
+  };
+  const deleteRun = async (runId) => {
+    const payload = { sessionId, runId };
+    await mutateThenRefresh("delete-run", payload);
+  };
+  return {
+    source,
+    refresh,
+    async createAutomation(input) {
+      const payload = { sessionId, input };
+      await mutateThenRefresh("create", payload);
+    },
+    async updateAutomation(automationId, expectedRevision, input) {
+      const payload = { sessionId, automationId, expectedRevision, input };
+      await mutateThenRefresh("update", payload);
+    },
+    async mutateAutomation(automationId, mutation) {
+      const payload = { sessionId, automationId, mutation };
+      await mutateThenRefresh("mutate", payload);
+    },
+    async runNow(automationId, mode) {
+      const payload = { sessionId, automationId, mode };
+      await mutateThenRefresh("run-now", payload);
+    },
+    markRunRead,
+    async confirmRun(runId) {
+      await mutateThenRefresh("confirm-run", { sessionId, runId });
+    },
+    async retryRun(runId) {
+      await mutateThenRefresh("retry-run", { sessionId, runId });
+    },
+    archiveRun,
+    deleteRun,
+    async updateSettings(settings) {
+      const payload = { sessionId, settings };
+      await mutateThenRefresh("settings-update", payload);
+    },
+    async openRunSession(runId, open) {
+      await open();
+      if (source.getSnapshot().snapshot?.runResolutionSupported === true) {
+        await mutateThenRefresh("read-run", { sessionId, runId });
+      } else await markRunRead(runId);
+    }
+  };
+}
+
+// src/client/navigation.ts
+function normalizedLabel(value) {
+  return value.trim().replace(/\s+/g, " ");
+}
+function findAutomationTab(tabs, label) {
+  const expected = normalizedLabel(label);
+  return [...tabs].find((tab) => normalizedLabel(tab.textContent ?? "") === expected);
+}
+function activateAutomationTab(tabs, label, onUnavailable) {
+  const tab = findAutomationTab(tabs, label);
+  if (tab === void 0) {
+    onUnavailable();
+    return "unavailable";
+  }
+  tab.click();
+  return "opened";
+}
+
+// src/client/sidebar-entry.ts
+var ENTRY_ATTR = "data-dsh-automation-entry";
+var NOTICE_ID = "dsh-automation-sidebar-unavailable";
+var ENTRY_SVG = '<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.25"/><path d="M12 7.7v4.7l3.15 1.85"/><path d="M5.6 4.9 4.2 6.3M18.4 4.9l1.4 1.4"/></svg>';
+function sidebarRoot() {
+  const button = document.querySelector('button[class*="newSession"]');
+  if (button !== null) {
+    const row = button.closest('[class*="logoRow"]');
+    return row?.parentElement ?? button.parentElement ?? void 0;
+  }
+  const column = document.querySelector(
+    '[data-pane="sidebar"], [class*="sidebarCol"], [class*="dshDesktopUpstreamSidebar"], [class*="dshDesktopSidebarSurface"]'
+  );
+  if (column === null) return void 0;
+  return column.querySelector('[class*="logoRow"]')?.parentElement ?? column.firstElementChild;
+}
+function newSessionButton(root) {
+  const nested = root.querySelector('button[class*="newSession"]');
+  if (nested !== null) return nested;
+  return Array.from(root.children).find((child) => child.tagName === "BUTTON");
+}
+function automationTabs() {
+  return document.querySelectorAll('[role="tab"]');
+}
+function installAutomationSidebarEntry(t) {
+  const entry = document.createElement("button");
+  entry.type = "button";
+  entry.setAttribute(ENTRY_ATTR, "");
+  entry.className = "dsh-automation-sidebar-entry";
+  entry.setAttribute("aria-label", t("sidebar.tooltip"));
+  entry.innerHTML = ENTRY_SVG;
+  const label = document.createElement("span");
+  label.className = "dsh-automation-sidebar-entry-label";
+  label.textContent = t("tab");
+  entry.append(label);
+  const TOOLTIP_DELAY_MS = 500;
+  let tooltip;
+  let tooltipTimer;
+  const hideTooltip = () => {
+    if (tooltipTimer !== void 0) clearTimeout(tooltipTimer);
+    tooltipTimer = void 0;
+    tooltip?.remove();
+    tooltip = void 0;
+  };
+  const showTooltip = () => {
+    if (tooltip !== void 0 || !document.querySelector("[data-sidebar-collapsed]")) return;
+    const rect = entry.getBoundingClientRect();
+    tooltip = document.createElement("div");
+    tooltip.className = "dsh-automation-sidebar-tooltip";
+    tooltip.textContent = t("sidebar.tooltip");
+    document.body.append(tooltip);
+    tooltip.style.left = `${rect.right + 8}px`;
+    tooltip.style.top = `${rect.top + rect.height / 2}px`;
+  };
+  const onTooltipEnter = () => {
+    hideTooltip();
+    tooltipTimer = setTimeout(showTooltip, TOOLTIP_DELAY_MS);
+  };
+  const onTooltipLeave = () => hideTooltip();
+  entry.addEventListener("mouseenter", onTooltipEnter);
+  entry.addEventListener("mouseleave", onTooltipLeave);
+  entry.addEventListener("focus", onTooltipEnter);
+  entry.addEventListener("blur", onTooltipLeave);
+  let notice;
+  const positionNotice = () => {
+    if (notice === void 0) return;
+    const rect = entry.getBoundingClientRect();
+    notice.style.top = `${Math.max(8, rect.bottom + 6)}px`;
+    notice.style.left = `${Math.max(8, rect.left)}px`;
+  };
+  const hideNotice = () => {
+    notice?.remove();
+    notice = void 0;
+  };
+  const showNotice = () => {
+    if (notice !== void 0) return;
+    notice = document.createElement("span");
+    notice.id = NOTICE_ID;
+    notice.className = "dsh-automation-sidebar-feedback";
+    notice.setAttribute("role", "status");
+    notice.textContent = t("sidebar.unavailable");
+    document.body.append(notice);
+    positionNotice();
+  };
+  const open = () => {
+    const result = activateAutomationTab(automationTabs(), t("tab"), showNotice);
+    if (result === "opened") hideNotice();
+  };
+  entry.addEventListener("click", open);
+  let rootEl;
+  const placeEntry = () => {
+    if (rootEl !== void 0 && !rootEl.isConnected) rootEl = void 0;
+    rootEl ??= sidebarRoot();
+    if (rootEl === void 0) return;
+    const button = newSessionButton(rootEl);
+    if (button === void 0) return;
+    const row = button.closest('[class*="logoRow"]');
+    const base = row !== null && row.parentElement === rootEl ? row : button;
+    const anchor = base.nextElementSibling;
+    if (entry === anchor) return;
+    rootEl.insertBefore(entry, anchor);
+  };
+  placeEntry();
+  const placement = coalesceFrame(placeEntry, {
+    request: (callback) => window.requestAnimationFrame(callback),
+    cancel: (id) => window.cancelAnimationFrame(id)
+  });
+  const observer = new MutationObserver((records) => {
+    if (rootEl?.isConnected && entry.isConnected && !records.some((record) => record.target === rootEl || rootEl.contains(record.target))) return;
+    placement.schedule();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  window.addEventListener("resize", positionNotice);
+  return () => {
+    observer.disconnect();
+    placement.dispose();
+    window.removeEventListener("resize", positionNotice);
+    hideTooltip();
+    entry.remove();
+    hideNotice();
+  };
+}
+
+// src/client/styles.ts
+var STYLE_ID = "dsh-automation-styles";
+var CSS_TEXT = String.raw`
+.dsh-automation-sidebar-entry,.dsh-automation-sidebar-feedback{box-sizing:border-box}
+.dsh-automation-sidebar-entry{position:relative;display:flex;box-sizing:border-box;height:38px;align-items:center;justify-content:center;gap:6px;margin:-6px 2px 8px;padding:8px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-button-elevated-fill);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui);font-size:14px;font-weight:500;line-height:22px;white-space:nowrap;cursor:pointer;overflow:hidden}
+.dsh-automation-sidebar-entry:hover{background:var(--dsw-alias-button-floating-hover)}
+.dsh-automation-sidebar-entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.dsh-automation-sidebar-entry svg{width:18px;height:18px;flex:none}
+.dsh-automation-sidebar-entry-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+[data-sidebar-collapsed] .dsh-automation-sidebar-entry,[data-dsh-frame][data-sidebar-collapsed] .dsh-automation-sidebar-entry{background:transparent;border-color:transparent;align-self:flex-start;justify-content:center;gap:0;width:36px;height:36px;margin:0 0 12px;padding:0;overflow:visible}
+[data-sidebar-collapsed] .dsh-automation-sidebar-entry-label,[data-dsh-frame][data-sidebar-collapsed] .dsh-automation-sidebar-entry-label{display:none}
+[data-sidebar-collapsed] .dsh-automation-sidebar-entry:hover,[data-dsh-frame][data-sidebar-collapsed] .dsh-automation-sidebar-entry:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dsh-automation-sidebar-tooltip{box-sizing:border-box;position:fixed;z-index:9999;transform:translateY(-50%);max-width:240px;padding:4px 8px;border-radius:6px;background:#17171a;color:#fff;font-family:var(--dsw-font-family,system-ui);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none}
+.dsh-automation-sidebar-feedback{display:block;position:fixed;z-index:20;max-width:260px;padding:5px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,var(--dsw-alias-border-l2));border-radius:7px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}
+.dsh-automation-section-actions{display:flex;flex:none;align-items:center;gap:8px}
+.dsh-automation-dropdown{position:relative;min-width:0}
+.dsh-automation-dropdown-btn{display:inline-flex;align-items:center;gap:4px;max-width:220px;height:28px;padding:0 10px;border:0;border-radius:999px;background:var(--dsw-alias-bg-layer-3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,inherit);font-family:inherit;font-size:13px;line-height:20px;cursor:pointer;white-space:nowrap}
+.dsh-automation-dropdown-btn:hover,.dsh-automation-dropdown-btn.is-open{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.18))}
+.dsh-automation-dropdown-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-automation-dropdown-chevron{flex:none;transition:transform .16s ease}
+.dsh-automation-dropdown-btn.is-open .dsh-automation-dropdown-chevron{transform:rotate(180deg)}
+.dsh-automation-dropdown-menu{box-sizing:border-box;position:absolute;right:0;top:calc(100% + 2px);z-index:30;width:max-content;min-width:180px;max-width:calc(100vw - 16px);max-height:260px;overflow-x:hidden;overflow-y:auto;padding:6px;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:12px;background:var(--dsw-alias-bg-layer-3,#303033);box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.32))}
+.dsh-automation-dropdown-menu.is-float{position:fixed;right:auto;top:auto;z-index:1200}
+.dsh-automation-dropdown-menu.dsh-automation-dropdown-sort{min-width:0}
+.dsh-automation-dropdown-row{box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;gap:8px;width:100%;min-height:36px;padding:6px 10px;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,inherit);font-family:inherit;font-size:13px;line-height:20px;cursor:pointer;text-align:left}
+.dsh-automation-dropdown-label-cell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-automation-dropdown-row:not(.has-trailing) .dsh-automation-dropdown-label-cell{flex:1}
+.dsh-automation-dropdown-row.has-trailing .dsh-automation-dropdown-label-cell{flex:none}
+.dsh-automation-dropdown-spacer{min-width:0}
+.dsh-automation-dropdown-row:not(.has-trailing) .dsh-automation-dropdown-spacer{flex:0 0 0}
+.dsh-automation-dropdown-row.has-trailing .dsh-automation-dropdown-spacer{flex:1 1 auto}
+.dsh-automation-dropdown-row.has-trailing{gap:0}
+.dsh-automation-dropdown-row.has-trailing .dsh-automation-dropdown-label-cell{margin-right:8px}
+.dsh-automation-dropdown-row.has-trailing .dsh-automation-dropdown-default{margin-right:4px}
+.dsh-automation-dropdown-check{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none}
+.dsh-automation-dropdown-row:hover,.dsh-automation-dropdown-row.is-selected{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,inherit)}
+.dsh-automation-dropdown-default{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;width:auto;min-width:0;height:22px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.14));border-radius:999px;background:var(--dsw-alias-bg-layer-3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,inherit);font-family:inherit;font-size:12px;line-height:18px;cursor:pointer;white-space:nowrap;overflow:hidden}
+.dsh-automation-dropdown-default:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.2))}
+.dsh-automation-dropdown-default:disabled,.dsh-automation-dropdown-default.is-on{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.08);color:var(--dsw-alias-label-tertiary,#8b8f98);cursor:default}
+.dsh-automation-sort-tick{width:16px;height:16px;flex:none}
+.dsh-automation-shell,.dsh-automation-shell *{box-sizing:border-box}
+.dsh-automation-shell{width:100%;height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 clamp(12px,2.5vw,40px) calc(var(--dsh-composer-height,152px) + 36px);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui);scrollbar-gutter:stable}
+.dsh-automation-header{display:flex;flex-direction:column;width:100%;margin:0 auto 6px;padding-bottom:0;justify-content:center;border-bottom:0}
+.dsh-automation-header-row{display:flex;width:100%;min-width:0;align-items:center}
+.dsh-automation-header-box>.dsh-automation-button{flex:none;align-self:center;width:auto;min-height:28px;height:auto;margin-left:24px;padding:4px 14px;gap:6px;border-radius:14px;box-shadow:var(--dsw-shadow-lv1);font-size:14px;line-height:20px}
+.dsh-automation-header-box>.dsh-automation-button svg{width:18px;height:18px;flex:none}
+.dsh-automation-header-box{box-sizing:border-box;display:inline-flex;width:auto;min-width:0;max-width:100%;align-items:center}
+.dsh-automation-header-title{display:flex;flex:none;min-width:0;align-items:center;gap:8px}.dsh-automation-header-title .dsh-automation-logo{align-self:center}
+.dsh-automation-header-box h1{margin:0;flex:none;font-size:18px;line-height:24px;font-weight:650;letter-spacing:0;white-space:nowrap}
+.dsh-automation-header-box p{flex:none;min-width:0;margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:24px;white-space:nowrap}
+.dsh-automation-header-meta{display:flex;flex-wrap:wrap;align-items:center;gap:5px 14px;margin-left:0;margin-top:0;padding-left:0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:24px;align-self:center}
+.dsh-automation-header-meta>span{display:inline-flex;min-width:0;align-items:center;gap:6px}
+.dsh-automation-header-meta strong{color:var(--dsw-alias-label-tertiary);font-weight:600}
+.dsh-automation-header-meta code{overflow:hidden;max-width:min(420px,44vw);color:var(--dsw-alias-label-secondary);font:11px/24px ui-monospace,SFMono-Regular,Menlo,monospace;text-overflow:ellipsis;white-space:nowrap}
+
+.dsh-automation-logo{display:inline-flex;width:32px;height:32px;flex:none;align-items:center;justify-content:center;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 25%,var(--dsw-alias-border-l2));border-radius:10px;background:color-mix(in srgb,var(--dsw-alias-state-business-tertiary) 76%,var(--dsw-alias-bg-base));box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-state-business-primary)}.dsh-automation-logo svg{width:18px;height:18px}
+.dsh-automation-header-divider{align-self:center;width:1px;height:18px;flex:none;margin:0;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 42%,transparent)}
+.dsh-automation-header-meta-divider{align-self:center;width:1px;height:18px;flex:none;margin:0 8px;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 42%,transparent)}
+.dsh-automation-kicker{display:block;color:var(--dsw-alias-state-business-primary);font-size:10px;font-weight:700;line-height:15px;letter-spacing:.075em;text-transform:uppercase}
+.dsh-automation-button{display:inline-flex;min-height:34px;align-items:center;justify-content:center;gap:7px;padding:6px 13px;border:1px solid transparent;border-radius:9px;font:600 12px/18px var(--dsw-font-family,system-ui);white-space:nowrap;cursor:pointer;transition:background var(--ds-transition-duration-fast,120ms),border-color var(--ds-transition-duration-fast,120ms),color var(--ds-transition-duration-fast,120ms),transform var(--ds-transition-duration-fast,120ms)}.dsh-automation-button svg{width:16px;height:16px}.dsh-automation-button:disabled{cursor:not-allowed;opacity:.45}.dsh-automation-button--primary{border-color:var(--dsw-alias-button-info-fill);background:var(--dsw-alias-button-info-fill);color:var(--dsw-alias-label-primary-foreground);box-shadow:var(--dsw-shadow-lv1)}.dsh-automation-button--primary:hover:not(:disabled){border-color:var(--dsw-alias-button-info-hover);background:var(--dsw-alias-button-info-hover);transform:translateY(-1px)}.dsh-automation-button--ghost{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary)}.dsh-automation-button--ghost:hover:not(:disabled){border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2));background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-business-primary)}.dsh-automation-button--danger{border-color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-primary-foreground)}
+.dsh-automation-icon-button{display:inline-flex;width:32px;height:32px;flex:none;align-items:center;justify-content:center;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}.dsh-automation-icon-button:hover:not(:disabled){border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-business-primary)}.dsh-automation-icon-button:disabled{cursor:not-allowed;opacity:.4}
+.dsh-automation-stats{display:grid;max-width:1440px;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 auto 22px}.dsh-automation-stats>div{position:relative;display:flex;min-height:76px;overflow:hidden;flex-direction:column;justify-content:center;padding:12px 15px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}.dsh-automation-stats>div:before{position:absolute;top:0;bottom:0;left:0;width:3px;background:var(--dsw-alias-state-business-primary);content:''}.dsh-automation-stats>div.is-attention:before{background:var(--dsw-alias-state-error-primary)}.dsh-automation-stats span{color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:600;line-height:16px;text-transform:uppercase;letter-spacing:.055em}.dsh-automation-stats strong{overflow:hidden;margin-top:2px;font-size:17px;line-height:23px;text-overflow:ellipsis;white-space:nowrap}.dsh-automation-stats>div:nth-child(-n+2) strong{color:var(--dsw-alias-state-business-primary);font-size:22px}
+.dsh-automation-content{display:grid;width:100%;min-height:0;grid-template-columns:minmax(0,2fr) minmax(0,1fr);align-items:start;gap:0;margin:0 auto}.dsh-automation-main-column,.dsh-automation-runs-column{min-width:0}.dsh-automation-main-column{padding-right:6px;border-right:0}.dsh-automation-runs-column{position:sticky;top:0;display:flex;height:calc(100vh - var(--dsh-composer-height,152px) - 44px);min-height:260px;flex-direction:column;padding-left:6px}.dsh-automation-runs-column .dsh-automation-run-list{border:0;border-radius:0;background:transparent;box-shadow:none}
+.dsh-automation-runs-panel{display:flex;min-width:0;flex:1;min-height:0;overflow:hidden;flex-direction:column;padding:14px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2)}
+.dsh-automation-runs-head{display:flex;flex:none;align-items:center;gap:10px;margin-bottom:12px}.dsh-automation-runs-settings{display:inline-flex;height:26px;align-items:center;gap:5px;margin-left:auto;padding:3px 9px 3px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:600 11px/16px var(--dsw-font-family,system-ui);white-space:nowrap;cursor:pointer;transition:background var(--ds-transition-duration-fast,120ms),border-color var(--ds-transition-duration-fast,120ms),color var(--ds-transition-duration-fast,120ms)}.dsh-automation-runs-settings:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2));background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-business-primary)}.dsh-automation-runs-settings svg{width:14px;height:14px}.dsh-automation-settings-section{overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}.dsh-automation-settings-section-head{display:flex;width:100%;align-items:center;gap:7px;padding:11px 13px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}.dsh-automation-settings-section-head:hover{background:var(--dsw-alias-interactive-bg-hover)}.dsh-automation-settings-section-head h3{margin:0;font-size:14px;line-height:20px}.dsh-automation-settings-section-head .dsh-automation-chevron{flex:none;width:15px;height:15px;color:var(--dsw-alias-label-tertiary);transition:transform var(--ds-transition-duration-fast,120ms)}.dsh-automation-settings-section-head[aria-expanded='true'] .dsh-automation-chevron{transform:rotate(180deg)}.dsh-automation-settings-section-body{display:grid;gap:13px;padding:2px 13px 14px}.dsh-automation-settings-lead{margin:0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:17px}
+.dsh-automation-runs-head h2{margin:0;font-size:15px;line-height:22px}
+.dsh-automation-runs-status{display:inline-flex;align-items:center;gap:5px;color:var(--dsw-alias-state-success-primary);font-size:11px;line-height:16px;white-space:nowrap}
+.dsh-automation-runs-status-label{color:var(--dsw-alias-label-tertiary);font-weight:400}
+.dsh-automation-runs-status-value{display:inline-flex;align-items:center;gap:3px}
+.dsh-automation-runs-status-icon{display:inline-flex;width:16px;height:16px;flex:none;align-items:center;justify-content:center;font-style:normal}
+.dsh-automation-runs-status-icon svg{display:block;width:14px;height:14px;transform:translateY(1px)}
+.dsh-automation-runs-status b{display:inline-grid;min-width:16px;height:16px;padding:0 4px;place-items:center;border-radius:999px;background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-primary-foreground);font-size:10px;line-height:14px}
+.dsh-automation-runs-status.is-error{color:var(--dsw-alias-state-error-primary)}
+.dsh-automation-module{box-sizing:border-box;min-width:0;padding:14px 16px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1)}
+.dsh-automation-module--runs{padding:14px}
+.dsh-automation-module-head{margin-bottom:12px}
+.dsh-automation-module .dsh-automation-empty{border-style:none;background:transparent;box-shadow:none}
+.dsh-automation-module .dsh-automation-run-list{border:0;border-radius:0;background:transparent;box-shadow:none}
+.dsh-automation-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:12px;padding:0 2px}.dsh-automation-section-title{min-width:0}.dsh-automation-section-heading h2{margin:0;font-size:15px;line-height:22px}.dsh-automation-section-scope{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin:3px 0 0}.dsh-automation-section-scope span{display:inline-flex;min-width:0;align-items:center;gap:5px}.dsh-automation-section-scope strong{color:var(--dsw-alias-label-tertiary);font-weight:600}.dsh-automation-section-scope code{overflow:hidden;max-width:min(440px,50vw);color:var(--dsw-alias-label-secondary);font:11px/17px ui-monospace,SFMono-Regular,Menlo,monospace;text-overflow:ellipsis;white-space:nowrap}.dsh-automation-section-heading .dsh-automation-section-scope{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:17px}.dsh-automation-section-heading .dsh-automation-section-hint{margin:4px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:17px}
+.dsh-automation-status-toolbar{display:flex;max-width:none;flex-direction:column;align-items:stretch;gap:8px;margin:0 0 14px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);container-type:inline-size}
+.dsh-automation-toolbar-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;min-width:0}
+.dsh-automation-toolbar-actions{display:inline-flex;flex:none;align-items:center;gap:8px;margin-left:auto}
+.dsh-automation-toolbar-bottom{display:flex;flex-direction:column;gap:8px;min-width:0}
+.dsh-automation-toolbar-controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-width:0}
+.dsh-automation-toolbar-calendar{width:100%;min-width:0}
+.dsh-automation-view-switch,.dsh-automation-range-switch{display:inline-flex;width:200px;max-width:100%;flex:none;align-items:center;gap:3px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base)}
+.dsh-automation-view-switch button{display:inline-flex;height:30px;flex:1;align-items:center;justify-content:center;gap:6px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:600 12px/18px var(--dsw-font-family,system-ui);cursor:pointer;white-space:nowrap}
+.dsh-automation-view-switch button b{display:inline-grid;min-width:18px;height:18px;padding:0 5px;place-items:center;border-radius:999px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:14px}
+.dsh-automation-view-switch button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-automation-view-switch button.is-selected{background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-label-primary)}
+.dsh-automation-view-switch button.is-selected b{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}
+.dsh-automation-range-switch button{height:26px;flex:1;padding:0 6px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:600 11px/16px var(--dsw-font-family,system-ui);cursor:pointer;white-space:nowrap}
+.dsh-automation-range-switch button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-automation-range-switch button.is-selected{background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-state-business-primary)}
+.dsh-automation-sort-group{display:inline-flex;flex:none;align-items:center;gap:8px;margin-left:auto}
+.dsh-automation-sort-switch{display:inline-flex;align-items:center;gap:0;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base)}
+.dsh-automation-sort-switch button{height:26px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:600 11px/16px var(--dsw-font-family,system-ui);cursor:pointer;white-space:nowrap}
+.dsh-automation-sort-switch button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-automation-sort-switch button.is-selected{background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-state-business-primary)}
+.dsh-automation-sort-sep{width:1px;height:16px;flex:none;background:var(--dsw-alias-border-l2)}
+.dsh-automation-status-summary{display:inline-flex;align-items:flex-start;gap:18px;margin-left:2px;color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px;white-space:nowrap}
+.dsh-automation-status-column{display:grid;align-content:start;gap:0}
+.dsh-automation-status-item{display:inline-flex;min-width:0;align-items:baseline;gap:5px;white-space:nowrap}
+.dsh-automation-status-item b{color:var(--dsw-alias-label-primary);font-size:12px;font-weight:650;line-height:16px}
+.dsh-automation-status-item em{overflow:hidden;max-width:180px;font-style:normal;font-size:11px;font-weight:400;line-height:14px;text-overflow:ellipsis;white-space:nowrap}
+.dsh-automation-next-run{display:inline-flex;align-items:baseline;gap:6px;margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;white-space:nowrap}
+.dsh-automation-next-run b{color:var(--dsw-alias-label-tertiary);font-weight:600}
+.dsh-automation-calendar{display:block}
+.dsh-automation-cal-nav{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+.dsh-automation-cal-nav-btn{display:inline-flex;height:28px;align-items:center;justify-content:center;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:600 12px/18px var(--dsw-font-family,system-ui);cursor:pointer;white-space:nowrap}
+.dsh-automation-cal-nav-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-automation-cal-title{flex:1;overflow:hidden;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:650;line-height:18px;text-align:center;text-overflow:ellipsis;white-space:nowrap}
+.dsh-automation-cal-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:14px}
+.dsh-automation-cal-day{display:flex;min-width:0;min-height:84px;flex-direction:column;align-items:center;gap:5px;padding:8px 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui);cursor:pointer}
+.dsh-automation-cal-day:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2))}
+.dsh-automation-cal-day.is-today{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}
+.dsh-automation-cal-day.is-selected{border-color:var(--dsw-alias-state-business-primary);box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)}
+.dsh-automation-cal-weekday{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:14px}
+.dsh-automation-cal-date{font-size:12px;font-weight:650;line-height:16px}
+.dsh-automation-cal-day.is-today .dsh-automation-cal-date{color:var(--dsw-alias-state-business-primary)}
+.dsh-automation-cal-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 6px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground);font-size:10px;line-height:14px}
+
+.dsh-automation-cal-count--attention{background:var(--dsw-alias-state-error-secondary);color:var(--dsw-alias-state-error-primary)}
+.dsh-automation-task-error{margin:8px 0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.dsh-automation-cal-count--paused{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary)}.dsh-automation-cal-count--executed{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-tertiary)}
+.dsh-automation-cal-month{display:block;margin-bottom:14px}
+.dsh-automation-cal-month-weekdays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:6px}
+.dsh-automation-cal-month-weekdays span{color:var(--dsw-alias-label-tertiary);font-size:10px;font-weight:600;line-height:14px;text-align:center}
+.dsh-automation-cal-month-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.dsh-automation-cal-month-day{position:relative;display:flex;min-width:0;min-height:60px;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-family,system-ui);cursor:pointer}
+.dsh-automation-cal-month-day:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2))}
+.dsh-automation-cal-month-day.is-other{opacity:.38}
+.dsh-automation-cal-month-day.is-today{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent);color:var(--dsw-alias-label-primary)}
+.dsh-automation-cal-month-day.is-selected{border-color:var(--dsw-alias-state-business-primary);box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,transparent)}
+.dsh-automation-cal-month-date{font-size:12px;line-height:16px}
+.dsh-automation-cal-month-day.is-today .dsh-automation-cal-month-date{color:var(--dsw-alias-state-business-primary);font-weight:700}
+.dsh-automation-status-toolbar .dsh-automation-cal-nav{flex:1 1 240px;justify-content:center;min-width:240px;margin:0;gap:4px}
+.dsh-automation-status-toolbar .dsh-automation-cal-nav-btn{height:24px;padding:0 8px;border-radius:7px;font-size:11px;line-height:16px}
+.dsh-automation-status-toolbar .dsh-automation-cal-title{flex:none;font-size:13px;line-height:18px}
+.dsh-automation-cal-title-box{display:inline-flex;align-items:center;gap:2px;flex:none}
+.dsh-automation-cal-title-select{height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;outline:none;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:650 12px/18px var(--dsw-font-family,system-ui);cursor:pointer;white-space:nowrap;text-align:center;appearance:none;-webkit-appearance:none}
+.dsh-automation-cal-title-select:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2))}
+.dsh-automation-refresh-button{display:inline-flex;width:32px;height:32px;flex:none;align-items:center;justify-content:center;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer}.dsh-automation-refresh-button:hover:not(:disabled){border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2));background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-state-business-primary)}.dsh-automation-refresh-button:disabled{cursor:not-allowed;opacity:.4}
+.dsh-automation-refresh-button svg{width:15px;height:15px}
+.dsh-automation-status-toolbar .dsh-automation-cal-week{gap:4px;margin-bottom:0}
+.dsh-automation-status-toolbar .dsh-automation-cal-day{min-height:44px;gap:3px;padding:5px 3px;border-radius:9px}
+.dsh-automation-status-toolbar .dsh-automation-cal-weekday{font-size:10px;line-height:13px}
+.dsh-automation-status-toolbar .dsh-automation-cal-date{font-size:12px;line-height:15px}
+.dsh-automation-status-toolbar .dsh-automation-cal-count{min-width:16px;height:16px;padding:0 6px;font-size:10px;line-height:14px}
+.dsh-automation-status-toolbar .dsh-automation-cal-month{display:block;max-width:min(560px,100%);margin:0 auto}
+.dsh-automation-status-toolbar .dsh-automation-cal-month-weekdays{gap:4px;margin-bottom:4px}
+.dsh-automation-status-toolbar .dsh-automation-cal-month-weekdays span{font-size:10px;line-height:14px}
+.dsh-automation-status-toolbar .dsh-automation-cal-month-grid{gap:4px}
+.dsh-automation-status-toolbar .dsh-automation-cal-month-day{min-height:40px;gap:3px;padding:4px 2px;border-radius:8px}
+.dsh-automation-status-toolbar .dsh-automation-cal-month-date{font-size:12px;line-height:16px}
+@container(max-width:820px){.dsh-automation-toolbar-controls{gap:4px}.dsh-automation-view-switch button{padding:0 4px;gap:3px}.dsh-automation-range-switch button{padding:0 2px}.dsh-automation-sort-switch button{padding:0 4px}.dsh-automation-status-toolbar .dsh-automation-cal-nav{flex:1 1 200px;min-width:200px;gap:2px}.dsh-automation-status-toolbar .dsh-automation-cal-nav-btn{padding:0 4px}}
+@container(max-width:680px){.dsh-automation-toolbar-controls{gap:2px}.dsh-automation-view-switch button{padding:0 2px;gap:2px}.dsh-automation-range-switch button{padding:0 1px}.dsh-automation-sort-switch button{padding:0 2px}.dsh-automation-status-toolbar .dsh-automation-cal-nav{flex:1 1 180px;min-width:180px;gap:1px}.dsh-automation-status-toolbar .dsh-automation-cal-nav-btn{padding:0 2px}}
+.dsh-automation-card-list{display:flex;flex-direction:column;gap:10px}.dsh-automation-card{padding:16px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);transition:border-color var(--ds-transition-duration-fast,120ms),box-shadow var(--ds-transition-duration-fast,120ms)}.dsh-automation-card:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,var(--dsw-alias-border-l2));box-shadow:var(--dsw-shadow-lv2)}
+.dsh-automation-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.dsh-automation-card-title{display:flex;min-width:0;align-items:flex-start;gap:10px}.dsh-automation-card-title>div{min-width:0}.dsh-automation-card-title h3{overflow:hidden;margin:0 0 6px;font-size:14px;line-height:20px;text-overflow:ellipsis;white-space:nowrap}.dsh-automation-card-icon{display:inline-flex;width:34px;height:34px;flex:none;align-items:center;justify-content:center;border-radius:10px;background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}.dsh-automation-card-icon svg{width:18px;height:18px}.dsh-automation-revision{padding:2px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font:10px/15px ui-monospace,SFMono-Regular,Menlo,monospace}
+.dsh-automation-card-badges{display:flex;flex-wrap:wrap;align-items:center;gap:5px}.dsh-automation-badge,.dsh-automation-permission-badge,.dsh-automation-model-badge{display:inline-flex;max-width:100%;align-items:center;gap:5px;overflow:hidden;padding:2px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:600;line-height:15px;text-overflow:ellipsis;white-space:nowrap}.dsh-automation-status-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}.dsh-automation-badge--active{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 30%,var(--dsw-alias-border-l2));background:var(--dsw-alias-state-success-tertiary);color:var(--dsw-alias-state-success-primary)}.dsh-automation-badge--active .dsh-automation-status-dot{background:var(--dsw-alias-state-success-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-success-primary) 12%,transparent)}.dsh-automation-badge--paused{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary)}.dsh-automation-badge--executed{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary)}.dsh-automation-badge--executed .dsh-automation-status-dot{background:var(--dsw-alias-label-tertiary)}.dsh-automation-permission-badge svg{width:12px;height:12px}.dsh-automation-model-badge{background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.dsh-automation-prompt{display:-webkit-box;overflow:hidden;margin:13px 0 12px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:19px;-webkit-box-orient:vertical;-webkit-line-clamp:2}.dsh-automation-schedule-line{display:flex;min-width:0;align-items:center;gap:7px;padding:8px 9px;border-radius:8px;background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary);font-size:11px;line-height:17px}.dsh-automation-schedule-line svg{width:14px;height:14px;flex:none}.dsh-automation-schedule-line strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-automation-schedule-line span{margin-left:auto;color:var(--dsw-alias-label-secondary);font:10px/16px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+.dsh-automation-prompt-details{margin:-7px 0 12px;color:var(--dsw-alias-label-secondary);font-size:10px;line-height:16px}.dsh-automation-prompt-details summary{width:max-content;color:var(--dsw-alias-state-business-primary);font-weight:650;cursor:pointer}.dsh-automation-prompt-details pre{max-height:320px;overflow:auto;margin:8px 0 0;padding:10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:11px/18px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.dsh-automation-resolution-details{margin:16px 0 12px;min-width:0}.dsh-automation-resolution-details summary{width:auto;max-width:100%;line-height:20px;white-space:normal;overflow-wrap:anywhere}
+
+.dsh-automation-card-times{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.dsh-automation-card-times>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-right:10px;border-right:1px solid var(--dsw-alias-border-l2)}.dsh-automation-card-times>div:last-child{padding-right:0;border-right:0}.dsh-automation-card-times dt{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px}.dsh-automation-card-times dd{display:flex;align-items:center;gap:5px;margin:0;color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600;line-height:16px}.dsh-automation-mini-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}.dsh-automation-mini-dot--succeeded{background:var(--dsw-alias-state-success-primary)}.dsh-automation-mini-dot--failed,.dsh-automation-mini-dot--interrupted{background:var(--dsw-alias-state-error-primary)}.dsh-automation-mini-dot--running,.dsh-automation-mini-dot--queued{background:var(--dsw-alias-state-business-primary)}
+.dsh-automation-card-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2)}.dsh-automation-delete-confirm{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 35%,var(--dsw-alias-border-l2));border-radius:9px;background:var(--dsw-alias-state-error-secondary)}.dsh-automation-delete-confirm>div:first-child{display:flex;flex-direction:column}.dsh-automation-delete-confirm strong{font-size:11px;line-height:17px}.dsh-automation-delete-confirm span{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}.dsh-automation-delete-confirm>div:last-child{display:flex;gap:6px}
+.dsh-automation-run-list{display:flex;flex:1;min-height:0;overflow-y:auto;flex-direction:column;gap:10px;padding:2px 4px 2px 2px;margin:-2px -4px -2px -2px;scrollbar-gutter:stable}
+.dsh-automation-run{flex:none;padding:13px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv1);transition:border-color var(--ds-transition-duration-fast,120ms),box-shadow var(--ds-transition-duration-fast,120ms)}
+.dsh-automation-run:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,var(--dsw-alias-border-l2));box-shadow:var(--dsw-shadow-lv2)}
+.dsh-automation-run-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.dsh-automation-run-title{display:flex;min-width:0;align-items:flex-start;gap:9px}
+.dsh-automation-run-title>div{display:flex;min-width:0;flex-direction:column;gap:3px}
+.dsh-automation-run-title h3{overflow:hidden;margin:0;font-size:12px;font-weight:650;line-height:18px;text-overflow:ellipsis;white-space:nowrap}
+.dsh-automation-run-icon{display:inline-flex;width:28px;height:28px;flex:none;align-items:center;justify-content:center;border-radius:8px;background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}
+.dsh-automation-run-icon svg{width:15px;height:15px}
+.dsh-automation-run-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.dsh-automation-run-trigger{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px;white-space:nowrap}
+.dsh-automation-run-top>time{flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px;white-space:nowrap}
+.dsh-automation-run-status{display:inline-flex;align-items:center;gap:5px;color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:650;line-height:16px}.dsh-automation-run-status svg{width:13px;height:13px}.dsh-automation-run-status--succeeded{color:var(--dsw-alias-state-success-primary)}.dsh-automation-run-status--failed,.dsh-automation-run-status--interrupted{color:var(--dsw-alias-state-error-primary)}.dsh-automation-run-status--running,.dsh-automation-run-status--queued{color:var(--dsw-alias-state-business-primary)}.dsh-automation-run-status--running svg{animation:dsh-automation-spin 1.6s linear infinite}.dsh-automation-run p{display:-webkit-box;overflow:hidden;margin:7px 0 0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:17px;-webkit-box-orient:vertical;-webkit-line-clamp:3}.dsh-automation-run p.is-error{color:var(--dsw-alias-state-error-primary)}.dsh-automation-run-session-row{display:flex;min-width:0;align-items:center;gap:8px;margin-top:7px}.dsh-automation-run-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:9px;padding-top:9px;border-top:1px solid var(--dsw-alias-border-l2)}.dsh-automation-run-actions .dsh-automation-button{min-height:27px;padding:3px 9px;border-radius:8px;font-size:11px;line-height:16px}.dsh-automation-run-actions .dsh-automation-button svg{width:13px;height:13px}.dsh-automation-run-actions .dsh-automation-icon-button{width:27px;height:27px}.dsh-automation-run-confirm{margin-top:9px}.dsh-automation-session-id{display:block;overflow:hidden;margin-top:0;color:var(--dsw-alias-label-tertiary);font:9px/14px ui-monospace,SFMono-Regular,Menlo,monospace;text-overflow:ellipsis;white-space:nowrap}
+.dsh-automation-empty,.dsh-automation-runs-empty{display:flex;min-height:250px;flex-direction:column;align-items:center;justify-content:center;padding:34px;border:1px dashed var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-1);text-align:center}.dsh-automation-empty>span{display:inline-flex;width:48px;height:48px;align-items:center;justify-content:center;border-radius:15px;background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}.dsh-automation-empty h3{margin:13px 0 4px;font-size:14px}.dsh-automation-empty p{max-width:none;margin:0 0 17px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:18px;white-space:nowrap}.dsh-automation-runs-empty{flex:1;min-height:140px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:18px}
+.dsh-automation-empty--footer{margin:14px 0;min-height:0;flex-direction:row;gap:16px;padding:16px 24px;border-style:dashed}
+.dsh-automation-empty--footer>span{width:40px;height:40px;border-radius:12px}
+.dsh-automation-empty--footer>span svg{width:18px;height:18px}
+.dsh-automation-float,.dsh-automation-float *{box-sizing:border-box}
+.dsh-automation-float{position:fixed;z-index:1200;display:flex;min-width:320px;min-height:320px;flex-direction:column;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-base);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family,system-ui);user-select:none}
+.dsh-automation-float input,.dsh-automation-float textarea,.dsh-automation-float select{user-select:text}
+.dsh-automation-float .dsh-automation-create{display:flex;width:100%;height:100%;max-width:none;margin:0;padding:0;overflow-y:auto;flex-direction:column;border:0;border-radius:0;background:var(--dsw-alias-bg-base);box-shadow:none}
+.dsh-automation-float .dsh-automation-create-heading{position:sticky;top:0;z-index:1;flex:none;margin:0 0 14px;padding:16px 18px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);cursor:move}
+.dsh-automation-float .dsh-automation-create-heading button{cursor:pointer}
+.dsh-automation-float .dsh-automation-form-grid{padding:0 18px}
+.dsh-automation-float .dsh-automation-form-footer{position:sticky;bottom:0;z-index:1;flex:none;margin:16px 0 0;padding:12px 18px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
+.dsh-automation-float-resize{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-tertiary) 60%,transparent) 50%)}
+.dsh-automation-draft-prompt{display:flex;flex:none;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,var(--dsw-alias-border-l2));background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px}
+.dsh-automation-draft-prompt>div{display:flex;flex:none;gap:8px}
+.dsh-automation-create{max-width:1440px;margin:0 auto 18px;padding:18px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-business-primary) 28%,var(--dsw-alias-border-l2));border-radius:14px;background:color-mix(in srgb,var(--dsw-alias-state-business-tertiary) 38%,var(--dsw-alias-bg-layer-1));box-shadow:var(--dsw-shadow-lv1)}.dsh-automation-create-heading{display:flex;align-items:center;justify-content:flex-start;gap:12px;margin-bottom:16px}.dsh-automation-create-heading h2{flex:none;margin:0;font-size:16px;line-height:22px}.dsh-automation-create-heading p{flex:1;min-width:0;margin:0;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:17px}.dsh-automation-create-heading>.dsh-automation-button{flex:none;margin-left:auto}.dsh-automation-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}.dsh-automation-field--wide{grid-column:1/-1}.dsh-automation-field{display:flex;min-width:0;flex-direction:column;gap:6px}.dsh-automation-field>span:first-child,.dsh-automation-fieldset legend{color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:650;line-height:16px}.dsh-automation-field small{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:15px}.dsh-automation-field-note{margin-left:8px;font-weight:400}.dsh-automation-field input,.dsh-automation-field textarea,.dsh-automation-field select{width:100%;min-width:0;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:12px/18px var(--dsw-font-family,system-ui)}.dsh-automation-field input,.dsh-automation-field select{height:36px}.dsh-automation-field select:disabled{cursor:not-allowed;opacity:.55}.dsh-automation-field textarea{min-height:88px;resize:vertical}.dsh-automation-field input:focus,.dsh-automation-field textarea:focus,.dsh-automation-field select:focus{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent)}.dsh-automation-field input::placeholder,.dsh-automation-field textarea::placeholder{color:var(--dsw-alias-label-dimmed)}
+.dsh-automation-catalog-status{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px}.dsh-automation-catalog-status .is-warning{color:var(--dsw-alias-label-secondary)}.dsh-automation-catalog-status .is-error{color:var(--dsw-alias-state-error-primary)}.dsh-automation-catalog-status button{margin-left:auto;padding:0;border:0;background:transparent;color:var(--dsw-alias-state-business-primary);font:600 10px/16px var(--dsw-font-family,system-ui);cursor:pointer}
+.dsh-automation-fieldset{min-width:0;margin:0;padding:0;border:0}.dsh-automation-fieldset legend{margin-bottom:6px;padding:0}.dsh-automation-segmented{display:inline-grid;grid-template-columns:repeat(4,minmax(80px,1fr));gap:3px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-layer-2)}.dsh-automation-segmented button,.dsh-automation-weekdays button{height:29px;padding:3px 9px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:600 10px/16px var(--dsw-font-family,system-ui);cursor:pointer}.dsh-automation-segmented button:hover,.dsh-automation-weekdays button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dsh-automation-segmented button.is-selected,.dsh-automation-weekdays button.is-selected{background:var(--dsw-alias-bg-base);box-shadow:var(--dsw-shadow-lv1);color:var(--dsw-alias-state-business-primary)}.dsh-automation-schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:10px}.dsh-automation-weekdays{grid-column:1/-1}.dsh-automation-weekdays>div{display:flex;flex-wrap:wrap;gap:4px}.dsh-automation-weekdays button{min-width:44px;border:1px solid var(--dsw-alias-border-l2)}.dsh-automation-weekdays button.is-selected{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2));background:var(--dsw-alias-state-business-tertiary)}.dsh-automation-inline-input{display:flex;align-items:center;gap:8px}.dsh-automation-inline-input input{max-width:150px}.dsh-automation-inline-input>span{color:var(--dsw-alias-label-secondary);font-size:11px}
+.dsh-automation-timezone{position:relative;display:flex;width:100%;min-width:0}
+.dsh-automation-timezone select{width:100%;padding-right:34px;appearance:none;-webkit-appearance:none}
+.dsh-automation-timezone-globe{position:absolute;right:4px;top:50%;display:inline-flex;width:28px;height:28px;align-items:center;justify-content:center;padding:0;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;transform:translateY(-50%)}
+.dsh-automation-timezone-globe svg{width:15px;height:15px}
+.dsh-automation-timezone-globe:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-automation-permission-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dsh-automation-permission-grid label{display:flex;min-width:0;align-items:flex-start;gap:9px;padding:11px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);cursor:pointer}.dsh-automation-permission-grid label.is-selected{border-color:var(--dsw-alias-state-business-primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-state-business-primary) 10%,transparent)}.dsh-automation-permission-grid input{position:absolute;opacity:0;pointer-events:none}.dsh-automation-permission-grid svg{width:17px;height:17px;flex:none;color:var(--dsw-alias-state-business-primary)}.dsh-automation-permission-grid label>span{display:flex;min-width:0;flex-direction:column}.dsh-automation-permission-grid strong{font-size:11px;line-height:17px}.dsh-automation-permission-grid small{color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}
+.dsh-automation-form-footer{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:15px;padding-top:13px;border-top:1px solid var(--dsw-alias-border-l2)}.dsh-automation-form-error{flex:1;color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:17px}.dsh-automation-inline-error{display:flex;max-width:1440px;align-items:center;gap:8px;margin:0 auto 14px;padding:9px 11px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 32%,var(--dsw-alias-border-l2));border-radius:9px;background:var(--dsw-alias-state-error-secondary);color:var(--dsw-alias-state-error-primary);font-size:11px;line-height:17px}.dsh-automation-inline-error svg{width:15px;height:15px;flex:none}
+.dsh-automation-centered{display:flex;min-height:420px;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12px}.dsh-automation-centered h2{margin:3px 0 0;color:var(--dsw-alias-label-primary);font-size:15px}.dsh-automation-centered p{max-width:480px;margin:0 0 8px;color:var(--dsw-alias-label-secondary)}.dsh-automation-loader,.dsh-automation-error-icon{display:inline-flex;width:46px;height:46px;align-items:center;justify-content:center;border-radius:14px;background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}.dsh-automation-loader svg{animation:dsh-automation-spin 1.6s linear infinite}.dsh-automation-error-icon{background:var(--dsw-alias-state-error-secondary);color:var(--dsw-alias-state-error-primary)}
+.dsh-automation-session-id{max-width:100%;padding:0;border:0;background:transparent;color:var(--dsw-alias-state-business-primary);text-align:left;cursor:pointer}.dsh-automation-session-id:hover{text-decoration:underline}.dsh-automation-session-id--archived{color:var(--dsw-alias-label-tertiary);cursor:default}.dsh-automation-session-id--archived:hover{text-decoration:none}
+.dsh-automation-run-review{display:inline-flex;align-items:center;gap:4px;margin-top:7px;padding:2px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:600 9px/14px var(--dsw-font-family,system-ui);cursor:pointer}.dsh-automation-run-review svg{width:11px;height:11px}.dsh-automation-run-review:hover:not(:disabled){border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 38%,var(--dsw-alias-border-l2));color:var(--dsw-alias-state-business-primary)}.dsh-automation-run-review:disabled{cursor:not-allowed;opacity:.45}
+.dsh-automation-shell button:focus-visible,.dsh-automation-shell input:focus-visible,.dsh-automation-shell textarea:focus-visible,.dsh-automation-shell select:focus-visible,.dsh-automation-float button:focus-visible,.dsh-automation-float input:focus-visible,.dsh-automation-float textarea:focus-visible,.dsh-automation-float select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+@keyframes dsh-automation-spin{to{transform:rotate(360deg)}}
+@media(max-width:1100px){.dsh-automation-header{grid-template-columns:1fr}.dsh-automation-header-row{grid-column:1}.dsh-automation-content{grid-template-columns:1fr}.dsh-automation-main-column{border-right:0;padding-right:0}.dsh-automation-runs-column{position:static;display:block;height:auto;min-height:0;margin-top:18px;padding-left:0;border-top:0}.dsh-automation-runs-panel{overflow:visible}.dsh-automation-run-list{overflow:visible;padding:0;margin:0}}
+@media(max-width:760px){.dsh-automation-shell{padding:18px 14px calc(var(--dsh-composer-height,152px) + 24px)}.dsh-automation-header{align-items:center}.dsh-automation-header-box p,.dsh-automation-header-divider{display:none}.dsh-automation-header-box{padding:9px 14px;border-radius:12px;flex-wrap:wrap}.dsh-automation-header-meta{padding-left:0;margin-left:0;margin-top:6px;width:100%}.dsh-automation-stats{grid-template-columns:1fr 1fr}.dsh-automation-form-grid,.dsh-automation-schedule-fields,.dsh-automation-permission-grid{grid-template-columns:1fr}.dsh-automation-segmented{width:100%;grid-template-columns:1fr 1fr}.dsh-automation-card-times{grid-template-columns:1fr}.dsh-automation-card-times>div{padding-right:0;border-right:0}}
+@media(max-width:480px){.dsh-automation-float{border-radius:10px}.dsh-automation-draft-prompt{align-items:stretch;flex-direction:column}.dsh-automation-header-box{flex-wrap:wrap}.dsh-automation-header-box>.dsh-automation-button{width:100%;margin-left:0}.dsh-automation-header-box{width:100%}.dsh-automation-header-box h1{font-size:16px}.dsh-automation-stats{gap:7px}.dsh-automation-stats>div{min-height:68px;padding:10px 12px}.dsh-automation-card{padding:13px}.dsh-automation-schedule-line{align-items:flex-start;flex-wrap:wrap}.dsh-automation-schedule-line span{width:100%;margin-left:21px}.dsh-automation-card-actions{display:grid;grid-template-columns:1fr 1fr}.dsh-automation-card-actions>.dsh-automation-icon-button{position:absolute;right:28px}.dsh-automation-delete-confirm{align-items:stretch;flex-direction:column}.dsh-automation-delete-confirm>div:last-child{justify-content:flex-end}.dsh-automation-create{padding:14px}.dsh-automation-create-heading{flex-direction:column}.dsh-automation-create-heading>.dsh-automation-button{display:none}}
+@media(prefers-reduced-motion:reduce){.dsh-automation-button,.dsh-automation-card,.dsh-automation-run{transition:none}.dsh-automation-loader svg,.dsh-automation-run-status--running svg{animation:none}}
+`;
+function installStyles() {
+  const existing = document.getElementById(STYLE_ID);
+  if (existing !== null) return () => void 0;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = CSS_TEXT;
+  document.head.append(style);
+  return () => {
+    style.remove();
+  };
+}
+
+// src/client/index.ts
+var name = "dsh-automation-client";
+var inject = ["slots", "locale", "connection", "sessions", "remote", "remote.session"];
+function apply(ctx) {
+  ctx.effect(() => installStyles(), "dsh-automation: styles");
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), "dsh-automation: locale");
+  const t = ctx.locale.bind(NS);
+  const refreshSessions = () => ctx.sessions.refresh();
+  const catalogRequests = /* @__PURE__ */ new Map();
+  const readModelCatalog = () => {
+    const key = "default";
+    const pending = catalogRequests.get(key);
+    if (pending !== void 0) return pending;
+    const request = loadModelCatalog(ctx.remote);
+    catalogRequests.set(key, request);
+    void request.catch(() => {
+      catalogRequests.delete(key);
+    }).then(() => {
+      if (catalogRequests.get(key) === request) catalogRequests.delete(key);
+    });
+    return request;
+  };
+  const runtimes = /* @__PURE__ */ new Map();
+  ctx.effect(() => () => {
+    runtimes.clear();
+    catalogRequests.clear();
+  }, "dsh-automation: session runtimes");
+  ctx.effect(() => installAutomationSidebarEntry(t), "dsh-automation: sidebar entry");
+  ctx.slots.inject("conversation.view", () => ctx.slots.register({
+    name: "conversation.view",
+    id: "automation",
+    order: 40,
+    locale: NS,
+    label: () => t("tab"),
+    inject: (sessionId) => {
+      let runtime = runtimes.get(sessionId);
+      if (runtime === void 0) {
+        runtime = createAutomationRuntime(ctx.connection.rpc, sessionId);
+        runtimes.set(sessionId, runtime);
+      }
+      return {
+        hooks: { automationState: runtime.source },
+        refresh: runtime.refresh,
+        createAutomation: runtime.createAutomation,
+        updateAutomation: runtime.updateAutomation,
+        mutateAutomation: runtime.mutateAutomation,
+        runNow: runtime.runNow,
+        markRunRead: runtime.markRunRead,
+        confirmRun: runtime.confirmRun,
+        retryRun: runtime.retryRun,
+        archiveRun: runtime.archiveRun,
+        deleteRun: runtime.deleteRun,
+        updateSettings: runtime.updateSettings,
+        loadModelCatalog: readModelCatalog,
+        refreshSessions,
+        openSession: (runId, runSessionId) => runtime.openRunSession(runId, async () => {
+          await ctx.sessions.refresh();
+          ctx.sessions.open(runSessionId);
+        })
+      };
+    }
+  }, AutomationView));
+}
+return module.exports; } });
+//# sourceMappingURL=client.js.map

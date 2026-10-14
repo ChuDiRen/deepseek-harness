@@ -1,0 +1,77 @@
+/**
+ * T1 (plan dsh-advisor-settings-n2) — live source wiring over the plugin
+ * entry's volatile config fields.
+ *
+ * dsh 0.1.7-rc.1 retired the settings user layer (`settings.yaml` is imported
+ * into the profile and renamed `.imported`; dsh-settings became the form
+ * service `SettingsForms` over profile entries). A plugin's editable config is
+ * now its OWN entry config: the fields the schema declares `.volatile()` are
+ * committed by the cordis Loader into the running fiber's references WITHOUT a
+ * remount (`src/config.ts` marks all five live fields volatile).
+ *
+ * This module is the read side of that pipeline. `apply` receives the entry
+ * config with each volatile field as a `{ get() }` reference; the bridge
+ * snapshots it through `unwrapAdvisorConfig` (per-field `.get()`, plain
+ * values tolerated), so `source()` always returns the RAW plain-valued config
+ * the hard gate reads. `onChange` rides the Loader's `loader/volatile-update`
+ * event — emitted to the OWNING fiber only, after the committed values are
+ * readable through the references — so every committed edit re-applies derived
+ * state exactly when the new values are visible.
+ *
+ * There is no registration step anymore: with ≥ 1 volatile field the entry
+ * appears in `settings.describe()` automatically (`autoGenerate` defaults to
+ * true), so the old `ctx.inject(['settings'])` registration child, its
+ * `installSection` contract, and the multi-fiber 'already registered' dedupe
+ * are all gone — every fiber builds its own bridge, and the owning-fiber event
+ * filter keeps each bridge pointed at its own entry's edits.
+ *
+ * The hard gate is untouched: the source returns the RAW config and every
+ * consumer passes it through `resolveAdvisorConfig` — the SSOT for the
+ * pairless-config disabled-with-reason resolution (no model call). There is
+ * no config-level `enabled` key (2026-09-26): the plugin-row toggle is the
+ * master switch, so the entry's volatile fields are the four §5.1 keys plus
+ * the system prompt.
+ *
+ * The write side rides the same entry id: the gateway (`src/gateway.ts`)
+ * writes through `settings.update(ADVISOR_SETTINGS_NAMESPACE, ...)` — the
+ * entry id IS the bundle row id `advisor` (`cordis.patch.yml`) — which lands
+ * in the profile via the config editor, commits through the Loader, and closes
+ * the loop back into this bridge's `onChange`.
+ *
+ * @module dsh-advisor/settings
+ */
+import { unwrapAdvisorConfig } from './config.js';
+/**
+ * The advisor settings entry id — the bundle row id (`cordis.patch.yml:5`),
+ * which is also the `settings.update` / `settings.describe` key and the
+ * gateway service key. (Pre-0.1.7 this constant was a registered settings
+ * namespace; it now names the plugin's own profile entry.)
+ */
+export const ADVISOR_SETTINGS_NAMESPACE = 'advisor';
+/**
+ * Wire the live source over the entry config's volatile references.
+ *
+ * `entry` is the config object `apply` received — on a Loader composition the
+ * five schema-declared fields are `{ get() }` references; plain-object entries
+ * (integration harnesses) work identically. The bridge holds the ENTRY, not a
+ * snapshot, so every `source()` call reads the references' CURRENT values and
+ * the returned config is live from the first read. `onChange` fires on every
+ * `loader/volatile-update` dispatched to this fiber — the Loader emits it only
+ * after the new values are committed, so a listener reading `source()` sees
+ * the committed state (no follow-up read needed).
+ */
+export function installAdvisorSettings(ctx, entry) {
+    const listeners = new Set();
+    const notify = () => {
+        for (const listener of [...listeners])
+            listener();
+    };
+    ctx.on('loader/volatile-update', () => notify());
+    return {
+        source: () => unwrapAdvisorConfig(entry),
+        onChange: (callback) => {
+            listeners.add(callback);
+        },
+    };
+}
+//# sourceMappingURL=settings.js.map

@@ -1,3 +1,5 @@
-# 构建产物与依赖不入库：部署由 pnpm install 重建，sourcemap 可由 src 现场重建
+# 依赖不入库；构建产物（lib/）入库——本目录的插件以 junction 挂进 profile，
+# 部署机不做本地构建，新克隆必须自带可加载的运行产物。sourcemap 不入库。
 node_modules/
 *.map
+!lib/

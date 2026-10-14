@@ -1,0 +1,168 @@
+/**
+ * dsh-tui settings-section seam (plan dsh-advisor-tui-settings-n9, T1) — the
+ * `tuiSettingsSections` Advisor section.
+ *
+ * dsh-tui ≥ v0.8.0 ships a `/settings` screen; optional plugins declare what
+ * is editable there by registering a SECTION over their settings entry on
+ * the optional `tuiSettingsSections` host service
+ * (`src/dsh-adapter/settings-sections.ts` in dsh-TUI — a small host-only
+ * registry; storage + validation stay with the dsh settings service). The
+ * screen then renders the section's fields, stages edits, and writes them on
+ * save through the revision-fenced `settings.mutate` into the entry's
+ * volatile fields — for the advisor that is the entry id `advisor` (the
+ * bundle row id, `src/settings.ts` `ADVISOR_SETTINGS_NAMESPACE`), committed
+ * by the Loader without a remount, so the section is fully writable.
+ *
+ * This module is the advisor's settings-seam surface:
+ * `installTuiSettingsSection` conditionally injects `tuiSettingsSections` and
+ * registers {@link ADVISOR_TUI_SETTINGS_SECTION} when the service exists; a
+ * profile without the `dsh-tui-settings-sections` row (dsh-tui < v0.8.0, or
+ * any non-TUI host) gets a clean no-op. The provider shapes are minimal LOCAL
+ * structural copies of the dsh-TUI types — the advisor MUST NOT import
+ * `@deepseek-harness-tui/dsh-tui` (zero new peers, plan Global Constraint),
+ * so drift against the upstream shape is bounded to the structural cast at
+ * the inject boundary and pinned by `tests/tui-settings.test.ts`.
+ *
+ * Upstream revision pin: the structural shapes mirror
+ * `@deepseek-harness-tui/dsh-tui` v0.8.0 (`src/dsh-adapter/settings-sections.ts`,
+ * dsh-TUI commit `02ff08e`). Residual drift window: an upstream
+ * addition/rename of a REQUIRED field would NOT fail the structural cast (the
+ * cast goes through `unknown`) and could cause host-side misrender rather than
+ * a compile error — re-verify against the dsh-TUI repo when bumping. The same
+ * window covers a KIND VALUE the cast cannot validate against the host:
+ * `kind: 'boolean'` (the `proseFallback` field, issue #102) is native only in
+ * the ≥ v0.8.0 mirror, so a host older than the pin could misrender it
+ * silently (documented fallback: remap to a select(on/off) two-option field).
+ *
+ * Field subset (2026-09-26; extended 2026-09-29, issue #102): the section
+ * covers the six §5.1 keys (`provider` / `model` / `immuneTurns` /
+ * `maxDeltaMessages` / `maxTokens` / `proseFallback`). `enabled` is
+ * gone with the config-level switch it edited (the plugin-row toggle is the
+ * master switch), and `systemPrompt` is intentionally NOT a field — the TUI
+ * `text` control is single-line, and editing a multi-line prompt there would
+ * truncate/replace it (data loss). It stays editable via the web card or the
+ * profile's `cordis.patch.yml`. The TUI seam has no cross-field validation
+ * (upstream behavior, recorded): a save may leave `provider`/`model` empty,
+ * which the S4 explicit model gate (spec §5.2) resolves to
+ * disabled-with-reason at runtime; the settings-service schema re-validation
+ * on mutate is the value-level backstop (a non-schema value fails the whole
+ * save before persist).
+ *
+ * @module dsh-advisor/tui-settings
+ */
+import { ADVISOR_SETTINGS_NAMESPACE } from './settings.js';
+/** The `tuiSettingsSections` host service key — the ONE name the T1
+ * registration condition (`installTuiSettingsSection`'s inject) and the T2
+ * hint truthfulness probe (`getConfig`'s `ctx.get`) are both keyed on. Shared
+ * so the registration condition and the render-time hint can never drift
+ * apart (S-001, plan QC fix wave). */
+export const TUI_SETTINGS_SECTIONS = 'tuiSettingsSections';
+/** Test-friendly alias for the section entry id (`'advisor'`). The section
+ * itself reuses the shared {@link ADVISOR_SETTINGS_NAMESPACE} entry id — a
+ * mismatched ns would silently render the section "unavailable" in the host
+ * screen (the alias exists so tests can pin the value without importing the
+ * settings module's constant). */
+export const ADVISOR_TUI_SETTINGS_NS = 'advisor';
+/** The declared "Advisor" section for the dsh-tui `/settings` screen: the
+ * six §5.1 keys (provider/model/immuneTurns/maxDeltaMessages/maxTokens/
+ * proseFallback) with zh/en labels + hints. Field paths are single-element
+ * §5.1 flat keys, so staged edits map 1:1 onto the namespace `mutate` paths. */
+export const ADVISOR_TUI_SETTINGS_SECTION = {
+    ns: ADVISOR_SETTINGS_NAMESPACE,
+    title: 'Advisor',
+    descriptions: {
+        zh: '顾问评审设置',
+        en: 'Advisor settings',
+    },
+    fields: [
+        {
+            path: ['provider'],
+            kind: 'text',
+            label: 'Provider',
+            descriptions: { zh: 'Provider', en: 'Provider' },
+            hint: 'Provider route; required (non-empty).',
+            hintDescriptions: { zh: 'Provider 路由；必须非空。', en: 'Provider route; required (non-empty).' },
+            placeholder: 'e.g. deepseek-official',
+        },
+        {
+            path: ['model'],
+            kind: 'text',
+            label: 'Model',
+            descriptions: { zh: 'Model', en: 'Model' },
+            hint: 'Model id; required (non-empty).',
+            hintDescriptions: { zh: '模型 ID；必须非空。', en: 'Model id; required (non-empty).' },
+            placeholder: 'e.g. deepseek-flash',
+        },
+        {
+            path: ['immuneTurns'],
+            kind: 'number',
+            label: 'Immune turns',
+            descriptions: { zh: '免疫轮数', en: 'Immune turns' },
+            hint: 'Cooldown after a delivered interrupt (integer ≥ 0).',
+            hintDescriptions: { zh: '投递一次建议后的冷却轮数（整数 ≥ 0）。', en: 'Cooldown after a delivered interrupt (integer ≥ 0).' },
+        },
+        {
+            path: ['maxDeltaMessages'],
+            kind: 'number',
+            label: 'Max delta messages',
+            descriptions: { zh: '最大增量消息数', en: 'Max delta messages' },
+            hint: 'Delta window (integer ≥ 0; 0 = unbounded).',
+            hintDescriptions: { zh: '增量窗口（整数 ≥ 0；0 = 不限）。', en: 'Delta window (integer ≥ 0; 0 = unbounded).' },
+        },
+        {
+            path: ['maxTokens'],
+            kind: 'number',
+            label: 'Max tokens',
+            descriptions: { zh: '最大 token 数', en: 'Max tokens' },
+            hint: 'Token budget for one advisor review (integer 128–16384, default 768); raise it if a thinking model returns empty replies.',
+            hintDescriptions: {
+                zh: '单次评审的 token 预算（整数 128–16384，默认 768）；思考型模型返回空回复时请调高。',
+                en: 'Token budget for one advisor review (integer 128–16384, default 768); raise it if a thinking model returns empty replies.',
+            },
+        },
+        {
+            // KD-I2 (issue #102): `boolean` is a native kind of the dsh-TUI ≥ v0.8.0
+            // structural mirror (plan Risk table) — no select(on/off) remap needed;
+            // storage stays boolean either way.
+            path: ['proseFallback'],
+            kind: 'boolean',
+            label: 'Prose fallback',
+            descriptions: { zh: '散文回退', en: 'Prose fallback' },
+            hint: 'When no JSON frame is found, deliver the prose reply as a low-severity note (off by default).',
+            hintDescriptions: {
+                zh: '未找到 JSON 帧时，将散文回复作为低严重级建议投递（默认关闭）。',
+                en: 'When no JSON frame is found, deliver the prose reply as a low-severity note (off by default).',
+            },
+        },
+    ],
+};
+/**
+ * Install the advisor's TUI settings-section surface: register the "Advisor"
+ * section on `tuiSettingsSections` when the host service exists (conditional
+ * inject; absent service → clean no-op). Called from `apply()` AFTER the
+ * single-reviewer claim (next to `installTuiClient`), so the section registers
+ * at most once per process. The structural accessor keeps the inject key in
+ * the standard position: the cordis Context has no `tuiSettingsSections`
+ * augmentation in this repo, so the service is read through a local
+ * structural cast. The inject child's return value (the registry disposer)
+ * is the child's own effect disposer, so the section withdraws when this
+ * fiber (or the service) goes away; a duplicate-ns registration is contained
+ * (debug log + no-op disposer, never throws — multi-fiber dedupe).
+ */
+export function installTuiSettingsSection(ctx) {
+    ctx.inject([TUI_SETTINGS_SECTIONS], (tctx) => {
+        const sections = tctx.tuiSettingsSections;
+        if (sections === undefined)
+            return;
+        try {
+            return sections.register(ADVISOR_TUI_SETTINGS_SECTION);
+        }
+        catch (error) {
+            if (!(error instanceof Error) || !error.message.includes('already registered'))
+                throw error;
+            tctx.logger('advisor').debug('advisor tui settings section already registered — no section on this fiber (multi-fiber dedupe)');
+            return () => { };
+        }
+    });
+}
+//# sourceMappingURL=tui-settings.js.map

@@ -1,0 +1,147 @@
+/**
+ * dsh-tui client surface (plan dsh-advisor-tui-client-n8, T1) — the
+ * `tuiCommandTrees` /advisor provider.
+ *
+ * In a `dsh --profile dsh-tui` terminal session the plugin's `/advisor`
+ * command (registered through the conditional `ctx.inject(['commands'], ...)`
+ * child) already lands in the TUI `/` menu via the command-registry merge.
+ * What the TUI cannot infer is the LOCALIZED row description and the typed
+ * subcommand COMPLETION — those come from the optional `tuiCommandTrees`
+ * host service (`src/dsh-adapter/command-trees.ts` in dsh-TUI): a provider
+ * declares `root`, zh/en `descriptions`, and a `children(canonicalPath)`
+ * completion tree (root at index 0; the TUI asks at depth 2 when completing
+ * `/advisor <sub> ⋯`).
+ *
+ * This module is the advisor's TUI seam: `installTuiClient` conditionally
+ * injects `tuiCommandTrees` and registers the `/advisor` tree when the
+ * service exists; a profile without the `dsh-tui-command-trees` row (or any
+ * non-TUI host) gets a clean no-op. The provider shapes are minimal LOCAL
+ * structural copies of the dsh-TUI types — the advisor MUST NOT import
+ * `@deepseek-harness-tui/dsh-tui` (zero new peers, plan Global Constraint),
+ * so drift against the upstream shape is bounded to the structural cast at
+ * the inject boundary and pinned by `tests/tui-client.test.ts`.
+ *
+ * @module dsh-advisor/tui
+ */
+/** The `/advisor` tree root (matches the command registry name). */
+export const ADVISOR_TUI_ROOT = 'advisor';
+/** The typed `/advisor` subcommands surfaced as completion children.
+ * Bare `/advisor` (toggle) is the empty-argument default, not a completion
+ * child (compass S1); `USAGE` is the unknown-subcommand fallback, not a
+ * named command. `model` answers a depth-3 `set`/`reset` list (spec §5.3). */
+const ADVISOR_SUBCOMMANDS = ['on', 'off', 'status', 'config', 'model'];
+/** The typed `/advisor model` subcommands surfaced at depth 3. */
+const ADVISOR_MODEL_SUBCOMMANDS = ['set', 'reset'];
+/** zh/en copy for the `/` menu row (shown via the host's `descriptions(root)`). */
+const ADVISOR_TUI_DESCRIPTIONS = {
+    zh: '按会话运行的评审顾问：开启 / 关闭 / 状态 / 配置',
+    en: 'Per-session advisor: enable, disable, status, or config',
+};
+/** zh/en copy per completion node. `description` is the plain fallback the
+ * node carries; `descriptions` is the localized map the TUI prefers. */
+const SUBCOMMAND_DESCRIPTIONS = {
+    on: {
+        description: 'Enable the advisor for this session',
+        descriptions: {
+            zh: '为本会话启用顾问',
+            en: 'Enable the advisor for this session',
+        },
+    },
+    off: {
+        description: 'Disable the advisor for this session',
+        descriptions: {
+            zh: '为本会话禁用顾问',
+            en: 'Disable the advisor for this session',
+        },
+    },
+    status: {
+        description: 'Show per-session advisor status (state, model, runtime, pending, last activity)',
+        descriptions: {
+            zh: '查看本会话顾问状态（开关、模型、运行态、待处理、最近活动）',
+            en: 'Show per-session advisor status (state, model, runtime, pending, last activity)',
+        },
+    },
+    config: {
+        description: 'Show the composed advisor config (settings readback)',
+        descriptions: {
+            zh: '查看组合后的顾问配置（设置回读）',
+            en: 'Show the composed advisor config (settings readback)',
+        },
+    },
+    model: {
+        description: 'Show or re-route the per-session reviewer model (model set <provider> <model> | model reset)',
+        descriptions: {
+            zh: '查看或改设本会话的评审模型（model set <供应商> <模型> | model reset）',
+            en: 'Show or re-route the per-session reviewer model (model set <provider> <model> | model reset)',
+        },
+    },
+};
+/** zh/en copy per `/advisor model` completion node. */
+const MODEL_SUBCOMMAND_DESCRIPTIONS = {
+    set: {
+        description: 'Pin the reviewer model for this session only (separate args; ids may contain /)',
+        descriptions: {
+            zh: '仅为本会话钉住评审模型（参数分开传，模型 id 可含 /）',
+            en: 'Pin the reviewer model for this session only (separate args; ids may contain /)',
+        },
+    },
+    reset: {
+        description: 'Drop the session pin and re-inherit the current global defaults',
+        descriptions: {
+            zh: '取消本会话钉住，重新继承当前全局默认值',
+            en: 'Drop the session pin and re-inherit the current global defaults',
+        },
+    },
+};
+/** The `/advisor` completion tree. `children` NEVER throws: unknown paths and
+ * a bare `[]` return an empty list (leaves have no deeper completion — the
+ * TUI asks at depth 2; `/advisor model` additionally answers at depth 3). */
+const advisorTree = {
+    root: ADVISOR_TUI_ROOT,
+    descriptions: ADVISOR_TUI_DESCRIPTIONS,
+    children(canonicalPath) {
+        // Root at index 0: `['advisor']` asks for the subcommand list;
+        // `['advisor', 'model']` asks for the model subcommand list (spec §5.3).
+        if (canonicalPath.length === 2 && canonicalPath[0] === ADVISOR_TUI_ROOT && canonicalPath[1] === 'model') {
+            return ADVISOR_MODEL_SUBCOMMANDS.map((name) => ({
+                name,
+                description: MODEL_SUBCOMMAND_DESCRIPTIONS[name].description,
+                descriptions: MODEL_SUBCOMMAND_DESCRIPTIONS[name].descriptions,
+            }));
+        }
+        if (canonicalPath.length !== 1 || canonicalPath[0] !== ADVISOR_TUI_ROOT)
+            return [];
+        return ADVISOR_SUBCOMMANDS.map((name) => ({
+            name,
+            description: SUBCOMMAND_DESCRIPTIONS[name].description,
+            descriptions: SUBCOMMAND_DESCRIPTIONS[name].descriptions,
+        }));
+    },
+};
+/**
+ * Install the advisor's TUI client surface: register the `/advisor`
+ * `tuiCommandTrees` provider when the host service exists (conditional
+ * inject; absent service → clean no-op). Called from `apply()` AFTER the
+ * single-reviewer claim, so the tree registers at most once per process
+ * (a duplicate-root registration would throw in the host registry). The
+ * structural accessor keeps the inject key in the standard position: the
+ * cordis Context has no `tuiCommandTrees` augmentation in this repo, so the
+ * service is read through a local structural cast.
+ */
+export function installTuiClient(ctx) {
+    ctx.inject(['tuiCommandTrees'], (tctx) => {
+        const trees = tctx.tuiCommandTrees;
+        if (trees === undefined)
+            return;
+        try {
+            return trees.register(advisorTree);
+        }
+        catch (error) {
+            if (!(error instanceof Error) || !error.message.includes('already registered'))
+                throw error;
+            tctx.logger('advisor').debug('advisor tui tree already registered — no tree on this fiber (multi-fiber dedupe)');
+            return () => { };
+        }
+    });
+}
+//# sourceMappingURL=tui.js.map

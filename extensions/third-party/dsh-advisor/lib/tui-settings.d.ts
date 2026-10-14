@@ -1,0 +1,150 @@
+/**
+ * dsh-tui settings-section seam (plan dsh-advisor-tui-settings-n9, T1) — the
+ * `tuiSettingsSections` Advisor section.
+ *
+ * dsh-tui ≥ v0.8.0 ships a `/settings` screen; optional plugins declare what
+ * is editable there by registering a SECTION over their settings entry on
+ * the optional `tuiSettingsSections` host service
+ * (`src/dsh-adapter/settings-sections.ts` in dsh-TUI — a small host-only
+ * registry; storage + validation stay with the dsh settings service). The
+ * screen then renders the section's fields, stages edits, and writes them on
+ * save through the revision-fenced `settings.mutate` into the entry's
+ * volatile fields — for the advisor that is the entry id `advisor` (the
+ * bundle row id, `src/settings.ts` `ADVISOR_SETTINGS_NAMESPACE`), committed
+ * by the Loader without a remount, so the section is fully writable.
+ *
+ * This module is the advisor's settings-seam surface:
+ * `installTuiSettingsSection` conditionally injects `tuiSettingsSections` and
+ * registers {@link ADVISOR_TUI_SETTINGS_SECTION} when the service exists; a
+ * profile without the `dsh-tui-settings-sections` row (dsh-tui < v0.8.0, or
+ * any non-TUI host) gets a clean no-op. The provider shapes are minimal LOCAL
+ * structural copies of the dsh-TUI types — the advisor MUST NOT import
+ * `@deepseek-harness-tui/dsh-tui` (zero new peers, plan Global Constraint),
+ * so drift against the upstream shape is bounded to the structural cast at
+ * the inject boundary and pinned by `tests/tui-settings.test.ts`.
+ *
+ * Upstream revision pin: the structural shapes mirror
+ * `@deepseek-harness-tui/dsh-tui` v0.8.0 (`src/dsh-adapter/settings-sections.ts`,
+ * dsh-TUI commit `02ff08e`). Residual drift window: an upstream
+ * addition/rename of a REQUIRED field would NOT fail the structural cast (the
+ * cast goes through `unknown`) and could cause host-side misrender rather than
+ * a compile error — re-verify against the dsh-TUI repo when bumping. The same
+ * window covers a KIND VALUE the cast cannot validate against the host:
+ * `kind: 'boolean'` (the `proseFallback` field, issue #102) is native only in
+ * the ≥ v0.8.0 mirror, so a host older than the pin could misrender it
+ * silently (documented fallback: remap to a select(on/off) two-option field).
+ *
+ * Field subset (2026-09-26; extended 2026-09-29, issue #102): the section
+ * covers the six §5.1 keys (`provider` / `model` / `immuneTurns` /
+ * `maxDeltaMessages` / `maxTokens` / `proseFallback`). `enabled` is
+ * gone with the config-level switch it edited (the plugin-row toggle is the
+ * master switch), and `systemPrompt` is intentionally NOT a field — the TUI
+ * `text` control is single-line, and editing a multi-line prompt there would
+ * truncate/replace it (data loss). It stays editable via the web card or the
+ * profile's `cordis.patch.yml`. The TUI seam has no cross-field validation
+ * (upstream behavior, recorded): a save may leave `provider`/`model` empty,
+ * which the S4 explicit model gate (spec §5.2) resolves to
+ * disabled-with-reason at runtime; the settings-service schema re-validation
+ * on mutate is the value-level backstop (a non-schema value fails the whole
+ * save before persist).
+ *
+ * @module dsh-advisor/tui-settings
+ */
+import type { Context } from '@deepseek-ai/cordis';
+/** Localized (zh/en) descriptions — structural mirror of dsh-TUI's
+ * `LocalizedDescriptions` (the `/settings` section + field labels/hints). */
+export type TuiLocalizedDescriptions = Readonly<Partial<Record<'zh' | 'en', string>>>;
+/** One `kind: 'select'` choice — structural mirror of dsh-TUI's
+ * `TuiSettingsFieldOption`. */
+export interface TuiSettingsFieldOption {
+    /** Stored value. */
+    value: string;
+    /** Display label (English; also the fallback). */
+    label: string;
+    /** Provider-owned translations for the label. */
+    descriptions?: TuiLocalizedDescriptions;
+}
+/** The write one field's draft stages when the section is saved — structural
+ * mirror of dsh-TUI's `TuiSettingsFieldWrite`. */
+export type TuiSettingsFieldWrite = {
+    kind: 'set';
+    value: unknown;
+} | {
+    kind: 'clear';
+};
+/** One editable field inside a section — structural mirror of dsh-TUI's
+ * `TuiSettingsField`. `path` uses the settings-service `mutate` path
+ * vocabulary (object keys); the advisor's §5.1 flat keys map directly as
+ * single-element paths. */
+export interface TuiSettingsField {
+    /** Key path from the section root, in the settings service's `mutate` path
+     * vocabulary (object keys; dict keys name their entry directly). */
+    path: readonly string[];
+    /** Short field label (English; also the fallback). */
+    label: string;
+    /** Provider-owned translations for the label. */
+    descriptions?: TuiLocalizedDescriptions;
+    /** Optional one-line help rendered under the field. */
+    hint?: string;
+    /** Provider-owned translations for the hint. */
+    hintDescriptions?: TuiLocalizedDescriptions;
+    kind: 'text' | 'number' | 'boolean' | 'select';
+    /** Choices for `kind: 'select'` (ignored otherwise). */
+    options?: readonly TuiSettingsFieldOption[];
+    /** Input placeholder for `kind: 'text' | 'number'`. */
+    placeholder?: string;
+    /** Credential control (mirrors the web cards' CardSecretSpec). */
+    secret?: {
+        ref: string;
+    };
+    /** Render a stored value as draft text (defaults to the kind's conversion). */
+    format?(value: unknown): string;
+    /** The write this draft text stages, or `undefined` when the text is not a
+     * value this field accepts (defaults to the kind's conversion — an empty
+     * text/number draft stages a clear, re-inheriting the composition layer). */
+    parse?(text: string): TuiSettingsFieldWrite | undefined;
+}
+/** One plugin's section inside the TUI `/settings` screen — structural mirror
+ * of dsh-TUI's `TuiSettingsSection`. */
+export interface TuiSettingsSection {
+    /** Settings namespace this section edits; the screen marks the section
+     * unavailable when the composition serves no such namespace. */
+    ns: string;
+    /** Section title (English; also the fallback). */
+    title: string;
+    /** Provider-owned translations for the title. */
+    descriptions?: TuiLocalizedDescriptions;
+    /** Editable fields, in display order. */
+    fields: readonly TuiSettingsField[];
+}
+/** The `tuiSettingsSections` host service key — the ONE name the T1
+ * registration condition (`installTuiSettingsSection`'s inject) and the T2
+ * hint truthfulness probe (`getConfig`'s `ctx.get`) are both keyed on. Shared
+ * so the registration condition and the render-time hint can never drift
+ * apart (S-001, plan QC fix wave). */
+export declare const TUI_SETTINGS_SECTIONS = "tuiSettingsSections";
+/** Test-friendly alias for the section entry id (`'advisor'`). The section
+ * itself reuses the shared {@link ADVISOR_SETTINGS_NAMESPACE} entry id — a
+ * mismatched ns would silently render the section "unavailable" in the host
+ * screen (the alias exists so tests can pin the value without importing the
+ * settings module's constant). */
+export declare const ADVISOR_TUI_SETTINGS_NS = "advisor";
+/** The declared "Advisor" section for the dsh-tui `/settings` screen: the
+ * six §5.1 keys (provider/model/immuneTurns/maxDeltaMessages/maxTokens/
+ * proseFallback) with zh/en labels + hints. Field paths are single-element
+ * §5.1 flat keys, so staged edits map 1:1 onto the namespace `mutate` paths. */
+export declare const ADVISOR_TUI_SETTINGS_SECTION: TuiSettingsSection;
+/**
+ * Install the advisor's TUI settings-section surface: register the "Advisor"
+ * section on `tuiSettingsSections` when the host service exists (conditional
+ * inject; absent service → clean no-op). Called from `apply()` AFTER the
+ * single-reviewer claim (next to `installTuiClient`), so the section registers
+ * at most once per process. The structural accessor keeps the inject key in
+ * the standard position: the cordis Context has no `tuiSettingsSections`
+ * augmentation in this repo, so the service is read through a local
+ * structural cast. The inject child's return value (the registry disposer)
+ * is the child's own effect disposer, so the section withdraws when this
+ * fiber (or the service) goes away; a duplicate-ns registration is contained
+ * (debug log + no-op disposer, never throws — multi-fiber dedupe).
+ */
+export declare function installTuiSettingsSection(ctx: Context): void;

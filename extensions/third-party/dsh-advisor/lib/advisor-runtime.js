@@ -1,0 +1,849 @@
+/**
+ * Per-session advisor runtime (spec §2 S2, §4 mapping rows, §6, §8.2 KD-2,
+ * §8.5 KD-5) — the "advisor model call + note extraction + drain/backlog"
+ * core.
+ *
+ * One {@link AdvisorRuntime} exists per session (created on `agent/created` or
+ * lazily on the first stepped `turn/end`, disposed on `agent/disposed` /
+ * `session/disposed` — wired in `index.ts`). It owns:
+ *
+ * - a FIFO queue of pending transcript deltas (bounded — spec §6 "bounded
+ *   backlog"; drop-newest when full);
+ * - a serialized async drain loop: one `llm.stream` call per delta with
+ *   `{ provider, model, system, messages: [user delta], maxTokens }` (the
+ *   configured budget — {@link AdvisorRuntimeOptions.maxTokens}, default
+ *   `ADVISOR_MAX_TOKENS`) and `purpose` left UNSET (KD-5 — an advisor call is
+ *   an ordinary conversation request);
+ * - a call-level deadline on every `llm.stream` call (dsh-timeout `deadline`,
+ *   fused with the dispose signal and raced per chunk): a hung provider stream
+ *   times out instead of wedging the drain, and a timeout is a transient
+ *   failure (KD-5 retry → drop);
+ * - KD-2 JSON-frame extraction: the first balanced `{…}` in the reply is
+ *   parsed (tolerant of prose/fences), `note` must be non-empty (else
+ *   drop+log), `severity` missing/invalid defaults to `nit`, no parse retry;
+ *   the KD-I2 prose fallback (issue #102, opt-in — see
+ *   {@link extractProseFallbackNote}) lets a reply that yields no valid
+ *   frame note through as a nit note when the `proseFallback` option is on —
+ *   no parseable frame at all, or frames whose note is empty/invalid; the
+ *   JSON frame keeps priority (a usable frame note blocks the fallback), and
+ *   the default (off) preserves the KD-2 drop semantics;
+ * - KD-I3 drop visibility (issue #102): a completed call whose reply yields
+ *   no note is classified — EMPTY (body empty after trim; the classic case is
+ *   a thinking model exhausting the token budget) vs UNPARSED (text present,
+ *   no parseable frame, fallback off/rescued nothing) — counted with
+ *   timestamps and warn-once hints, readable via the `emptyReplies` /
+ *   `unparsedReplies` / `lastEmptyReplyAt` / `lastUnparsedReplyAt` getters
+ *   (the T7 `/advisor status` surface);
+ * - the KD-5 failure policy: transient → 1 retry with a short backoff → drop;
+ *   3 consecutive dropped deltas → flush the pending backlog (never stall);
+ *   permanent errors (`invalid_request_error`, model-not-found, "is not
+ *   supported when") → halt the session's advisor; quota/rate-limit → pause
+ *   (`quota_exhausted`), batch retained, no auto-resume timer; the in-flight
+ *   call is aborted on dispose via the `signal`. `halted` is terminal in
+ *   place — the command layer rebuilds the runtime (dispose + recreate); a
+ *   `quota_exhausted` runtime resumes via {@link AdvisorRuntime.resume}.
+ *
+ * The runtime never parks the primary loop: everything is fire-and-forget
+ * async and a failing advisor can only drop its own backlog.
+ *
+ * @module dsh-advisor/advisor-runtime
+ */
+var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
+    if (value !== null && value !== void 0) {
+        if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
+        var dispose, inner;
+        if (async) {
+            if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
+            dispose = value[Symbol.asyncDispose];
+        }
+        if (dispose === void 0) {
+            if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
+            dispose = value[Symbol.dispose];
+            if (async) inner = dispose;
+        }
+        if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
+        if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
+        env.stack.push({ value: value, dispose: dispose, async: async });
+    }
+    else if (async) {
+        env.stack.push({ async: true });
+    }
+    return value;
+};
+var __disposeResources = (this && this.__disposeResources) || (function (SuppressedError) {
+    return function (env) {
+        function fail(e) {
+            env.error = env.hasError ? new SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
+            env.hasError = true;
+        }
+        var r, s = 0;
+        function next() {
+            while (r = env.stack.pop()) {
+                try {
+                    if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
+                    if (r.dispose) {
+                        var result = r.dispose.call(r.value);
+                        if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
+                    }
+                    else s |= 1;
+                }
+                catch (e) {
+                    fail(e);
+                }
+            }
+            if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
+            if (env.hasError) throw env.error;
+        }
+        return next();
+    };
+})(typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+});
+import { createUserMessage, isQuotaExceededError, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import { INVALID_CREDENTIAL_CODE, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm';
+import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout';
+import { createEmissionGuard } from './emission-guard.js';
+/**
+ * User-directed token budget for one advisor call (256 → 5120 → 768).
+ * Exported so the test suites assert the pinned value instead of a magic
+ * literal.
+ *
+ * Supersession chain: the frozen spec §8.2 (KD-2) pins `maxTokens: 256` ("so
+ * a runaway reply cannot blow the budget"); the 5120 value (a 20x worst-case
+ * per-call ceiling) was a USER-DIRECTED supersession adopted together with
+ * `reasoningEffort: 'off'` when reasoning-heavy replies could starve the JSON
+ * frame. With thinking-off now the capability-gated default (see
+ * `resolveReasoningEffort`), the reasoning headroom is unnecessary: this 768
+ * value is the latest USER-DIRECTED supersession — a modest budget that fits
+ * one `ADVISOR_NOTE_MAX_CHARS` note plus the JSON frame. The runaway-reply
+ * guard stays re-bounded downstream: `extractAdviceNote` caps the note at
+ * `ADVISOR_NOTE_MAX_CHARS` and `buildAdvisorMessage` bounds the notice
+ * summary via `boundContextSummary`.
+ *
+ * KD-I1 (issue #102, user direction 2026-09-29): KD-6's "code invariant, not
+ * an operator switch" ruling was superseded again — the budget is now
+ * operator-configurable (config key `maxTokens`, bounds 128..16384, Settings
+ * UI in Task 3) because thinking models behind third-party gateways exhaust a
+ * fixed budget on reasoning and return an EMPTY body (finish: max-tokens).
+ * This constant remains the CODE DEFAULT for unconfigured/plain entries: the
+ * runtime falls back to it, so default behavior (and every existing 768 pin)
+ * is unchanged.
+ */
+export const ADVISOR_MAX_TOKENS = 768;
+/**
+ * One extracted note's length cap (qc3 F-2 / qc2 S-1): a verbose/rogue advisor
+ * reply must not inject an unbounded user-role message into the primary
+ * session (the token budget is now matched to this cap — 768). Truncated with
+ * a '…' marker. The KD-I2 prose fallback note is capped by the same bound —
+ * a raised generation budget must not enlarge the injection surface.
+ */
+export const ADVISOR_NOTE_MAX_CHARS = 768;
+const DEFAULT_RETRY_BACKOFF_MS = 1_000;
+const DEFAULT_MAX_QUEUED = 32;
+/** Whole-call deadline for one `llm.stream` (qc2 W-4 / qc3 W-1); see `callTimeoutMs`. */
+const DEFAULT_CALL_TIMEOUT_MS = 60_000;
+/** Capability-owned code stamped onto the deadline's TimeoutReason. */
+const ADVISOR_CALL_TIMEOUT = 'ADVISOR_CALL_TIMEOUT';
+/** Transient retries after the first attempt (KD-5: retry(1) → drop). */
+const MAX_TRANSIENT_ATTEMPTS = 1;
+/** Consecutive dropped deltas after which the pending backlog is flushed (KD-5). */
+const MAX_CONSECUTIVE_DROPS = 3;
+// ---------------------------------------------------------------------------
+// KD-2 — JSON-frame note extraction
+// ---------------------------------------------------------------------------
+/**
+ * Yield every top-level balanced `{…}` region of `text`, skipping braces
+ * inside string literals so a quoted `{`/`}` never corrupts the balance.
+ */
+function* balancedObjects(text) {
+    let start = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = 0; index < text.length; index++) {
+        const char = text[index];
+        if (inString) {
+            if (escaped)
+                escaped = false;
+            else if (char === '\\')
+                escaped = true;
+            else if (char === '"')
+                inString = false;
+            continue;
+        }
+        if (char === '"') {
+            inString = true;
+        }
+        else if (char === '{') {
+            if (start < 0) {
+                start = index;
+                depth = 1;
+            }
+            else {
+                depth++;
+            }
+        }
+        else if (char === '}') {
+            if (start >= 0 && --depth === 0) {
+                yield text.slice(start, index + 1);
+                start = -1;
+            }
+        }
+    }
+}
+/**
+ * Extract one {@link AdviceNote} from the advisor's reply (KD-2).
+ *
+ * Locates the first balanced `{…}` object (tolerant of surrounding prose and
+ * markdown fences), parses it, and validates: `note` must be a non-empty
+ * string after trim (else drop), `severity` missing/invalid defaults to
+ * `nit`. A reply with no parseable frame returns `undefined` — the caller
+ * drops + logs, and there is NO retry for parse failures (the retry budget is
+ * reserved for transport errors, KD-2). The note is capped at
+ * {@link ADVISOR_NOTE_MAX_CHARS} with a '…' marker (qc3 F-2 — the 20x token
+ * budget must not translate into an unbounded injection into the primary
+ * session). Never throws.
+ */
+export function extractAdviceNote(reply) {
+    for (const frame of balancedObjects(reply)) {
+        let parsed;
+        try {
+            parsed = JSON.parse(frame);
+        }
+        catch {
+            continue; // not JSON — try the next balanced region
+        }
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+            continue;
+        const record = parsed;
+        const note = record.note;
+        if (typeof note !== 'string' || note.trim().length === 0)
+            continue; // KD-2: drop empty note
+        const severity = record.severity;
+        const trimmed = note.trim();
+        return {
+            note: trimmed.length > ADVISOR_NOTE_MAX_CHARS
+                ? `${trimmed.slice(0, ADVISOR_NOTE_MAX_CHARS - 1)}…`
+                : trimmed,
+            severity: severity === 'concern' || severity === 'blocker' ? severity : 'nit',
+        };
+    }
+    return undefined;
+}
+/**
+ * A reply fully wrapped in ONE markdown fence: an opening fence line (with or
+ * without an info string) and a closing fence at the very end. Trailing prose
+ * after the closing fence means the fence is not surrounding — no match.
+ */
+const SURROUNDING_FENCE_PATTERN = /^```[^\n]*\n([\s\S]*?)\n?```$/;
+/**
+ * The KD-I2 prose fallback cleanup (issue #102; opt-in — see
+ * {@link AdvisorRuntimeOptions.proseFallback}). Frozen-spec supersession
+ * note: the strict KD-2 JSON-frame requirement stays the DEFAULT — this
+ * function is applied at the extraction call site ONLY when
+ * {@link extractAdviceNote} extracted no valid note (no parseable frame, or
+ * every frame's note empty/invalid) AND the flag is on, so a reply whose
+ * frame yields a usable note still delivers that note.
+ *
+ * Cleanup: trim → strip ONE surrounding markdown fence (an unterminated or
+ * non-surrounding fence is kept as-is) → cap at {@link ADVISOR_NOTE_MAX_CHARS}
+ * with a '…' marker (the same injection bound as {@link extractAdviceNote} —
+ * a raised generation budget must not enlarge the primary session's injection
+ * surface). An empty result (whitespace-only reply, fence-only reply) is NOT
+ * prose: the caller classifies it as an EMPTY drop (KD-I3), never as an
+ * unparsed/prose case. Severity is always `nit` — prose carries no structured
+ * severity. Never throws.
+ */
+export function extractProseFallbackNote(reply) {
+    const match = SURROUNDING_FENCE_PATTERN.exec(reply.trim());
+    const text = (match?.[1] ?? reply).trim();
+    if (text.length === 0)
+        return undefined;
+    return {
+        note: text.length > ADVISOR_NOTE_MAX_CHARS
+            ? `${text.slice(0, ADVISOR_NOTE_MAX_CHARS - 1)}…`
+            : text,
+        severity: 'nit',
+    };
+}
+/**
+ * omp's permanent-rejection wording (see the advisor runtime it ports): a
+ * request the provider refuses outright for this advisor configuration — no
+ * retry can fix it. Halting avoids re-attempting on every new delta forever.
+ */
+const PERMANENT_FAILURE_PATTERN = /invalid_request_error|model[_ ]not[_ ]found|is not supported when|does not exist/i;
+/** Classify one provider failure per KD-5 (quota/rate-limit → pause, permanent → halt). */
+function classifyFailure(failure) {
+    if (failure.code === QUOTA_EXCEEDED_CODE
+        || failure.code === 'RATE_LIMIT'
+        || isQuotaExceededError(failure.message)) {
+        return 'quota';
+    }
+    if (failure.code === INVALID_CREDENTIAL_CODE
+        || failure.code === 'NO_ADAPTER'
+        || PERMANENT_FAILURE_PATTERN.test(failure.message)) {
+        return 'permanent';
+    }
+    return 'transient';
+}
+/** Minimal provider-neutral failure snapshot from a thrown value. */
+function normalizeFailure(value) {
+    if (value instanceof Error) {
+        const code = value.code;
+        return {
+            message: value.message,
+            code: typeof code === 'string' && code.length > 0 ? code : 'UNKNOWN',
+        };
+    }
+    return { message: String(value), code: 'UNKNOWN' };
+}
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+/**
+ * Race one async-iterator demand against a deadline signal: resolve with the
+ * iterator's next result, or `'aborted'` when the signal aborts first. A
+ * provider error rejects through the race (the caller classifies it). This is
+ * what makes a hung stream (no chunk, no end, no error) terminable even when
+ * the provider ignores the abort signal — the runtime never depends on the
+ * provider honoring `signal` (qc2 W-4 / qc3 W-1).
+ */
+function raceIteratorNext(iterator, signal) {
+    if (signal.aborted)
+        return Promise.resolve('aborted');
+    return new Promise((resolve, reject) => {
+        const onAbort = () => resolve('aborted');
+        signal.addEventListener('abort', onAbort, { once: true });
+        Promise.resolve()
+            .then(() => iterator.next())
+            .then((result) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(result);
+        }, (error) => {
+            signal.removeEventListener('abort', onAbort);
+            reject(error);
+        });
+    });
+}
+/**
+ * Per-session advisor runtime: queue deltas, async drain, `llm.stream` call,
+ * JSON-frame note extraction, and the KD-5 failure policy. All async work is
+ * fire-and-forget — the primary loop is never parked.
+ */
+export class AdvisorRuntime {
+    provider;
+    model;
+    systemPrompt;
+    maxTokens;
+    proseFallback;
+    retryBackoffMs;
+    callTimeoutMs;
+    maxQueued;
+    llm;
+    guard;
+    onNote;
+    logger;
+    controller = new AbortController();
+    /**
+     * Per-(provider, model) reasoning-effort capability cache (qc2 W-1 / qc1
+     * W-1 / qc3 F-3): resolving the model's declared efforts on EVERY advisor
+     * call would add an adapter round-trip per delta; one resolution per
+     * (provider, model) per runtime suffices — the route is pinned for the
+     * runtime's lifetime. ONLY definitive verdicts are cached ('off' or a
+     * successful no-'off' resolution); a resolution failure (throw or deadline
+     * abort) is never cached, so the next call resolves afresh.
+     */
+    reasoningEffortCache = new Map();
+    /** One-shot latch for the definitive no-'off' log line (log-once per runtime). */
+    thinkingOffLogged = false;
+    queue = [];
+    state = 'running';
+    draining = false;
+    disposed = false;
+    consecutiveDrops = 0;
+    drainPromise;
+    /** Epoch-ms of the last note accepted by the emission guard (T7 status). */
+    lastActivityAt;
+    /**
+     * KD-I3 drop counters (issue #102): EMPTY vs UNPARSED no-note drops with
+     * their last-occurrence timestamps — the "advisor is running but never
+     * speaks" visibility surface (T2 renders them on `/advisor status`). Only
+     * COMPLETED model calls are classified here; transport drops stay in the
+     * KD-5 consecutive-drop path.
+     */
+    emptyReplyCount = 0;
+    unparsedReplyCount = 0;
+    lastEmptyReplyTimestamp;
+    lastUnparsedReplyTimestamp;
+    /** Warn-once latches, one per drop class per runtime (KD-I3). */
+    emptyReplyWarned = false;
+    unparsedReplyWarned = false;
+    constructor(options) {
+        this.provider = options.provider;
+        this.model = options.model;
+        this.systemPrompt = options.systemPrompt;
+        this.maxTokens = options.maxTokens ?? ADVISOR_MAX_TOKENS;
+        this.proseFallback = options.proseFallback ?? false;
+        this.retryBackoffMs = options.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS;
+        this.callTimeoutMs = options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
+        this.maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED;
+        this.llm = options.llm;
+        this.guard = options.guard ?? createEmissionGuard();
+        this.onNote = options.onNote;
+        this.logger = options.logger ?? console;
+    }
+    /** Current per-session status (T7 `/advisor status` surface). */
+    status() {
+        return this.state;
+    }
+    /** Number of deltas waiting to be drained (bounded by `maxQueued`). */
+    get pendingCount() {
+        return this.queue.length;
+    }
+    /**
+     * T7 `/advisor status` surface — epoch-ms of the last note accepted by the
+     * emission guard, or `undefined` before the first accepted note.
+     */
+    get lastActivity() {
+        return this.lastActivityAt;
+    }
+    /**
+     * KD-I3 (issue #102) — replies dropped because the body was empty after
+     * trim (mostly a reasoning model exhausting the token budget). Read-only
+     * status outlet, same style as `pendingCount`/`lastActivity`.
+     */
+    get emptyReplies() {
+        return this.emptyReplyCount;
+    }
+    /**
+     * KD-I3 (issue #102) — replies dropped because no valid note was extracted
+     * (no parseable JSON frame, or frames whose note is empty/invalid) and the
+     * prose fallback delivered nothing (`proseFallback` off, or on with an
+     * empty cleanup result). Read-only status outlet.
+     */
+    get unparsedReplies() {
+        return this.unparsedReplyCount;
+    }
+    /** KD-I3 — epoch-ms of the last EMPTY-reply drop, `undefined` before the first. */
+    get lastEmptyReplyAt() {
+        return this.lastEmptyReplyTimestamp;
+    }
+    /** KD-I3 — epoch-ms of the last UNPARSED-reply drop, `undefined` before the first. */
+    get lastUnparsedReplyAt() {
+        return this.lastUnparsedReplyTimestamp;
+    }
+    /**
+     * Queue one rendered transcript delta (from the T3 observer's `onDelta`).
+     * While `quota_exhausted`, deltas queue up (bounded) but the drain is never
+     * auto-restarted (KD-5 — no auto-resume timer); while `halted`/disposed they
+     * are dropped with a log. Never throws, never parks the caller.
+     */
+    enqueue(delta) {
+        if (this.disposed) {
+            this.logger.debug('advisor: enqueue ignored — runtime disposed');
+            return;
+        }
+        if (this.state === 'halted') {
+            this.logger.debug('advisor: enqueue ignored — advisor halted');
+            return;
+        }
+        if (this.queue.length >= this.maxQueued) {
+            // simplify: FIFO queue with drop-newest when full. A full queue means the
+            // advisor is far behind; the newest delta is the most redundant. A
+            // coalescing batch (omp-style) would be the upgrade path.
+            this.logger.debug('advisor: enqueue dropped — backlog full', { maxQueued: this.maxQueued });
+            return;
+        }
+        this.queue.push(delta);
+        if (this.state === 'quota_exhausted')
+            return; // paused: retain, never auto-resume
+        this.kickDrain();
+    }
+    /** Abort the in-flight call and stop the drain (wiring: session/agent disposed). */
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this.controller.abort('advisor disposed');
+        this.queue.length = 0;
+        this.consecutiveDrops = 0;
+    }
+    /**
+     * Manual resume after a quota pause (T7 `/advisor on`); no-op when halted/
+     * disposed — a halted runtime is terminal in place and is recovered by the
+     * command layer via dispose-and-recreate (qc1/qc2/qc3 W-1/I-4), never
+     * resumed here.
+     */
+    resume() {
+        if (this.disposed || this.state === 'halted')
+            return;
+        this.state = 'running';
+        this.kickDrain();
+    }
+    /**
+     * KD-5 reset trigger: a compaction / surface rewrite clears the emission
+     * guard's dedupe history and per-update latch — the session state is being
+     * rewritten, so the old note history no longer applies (a note already
+     * advised before the rewrite may legitimately be advised again). The wiring
+     * (`index.ts` onRewrite) calls this alongside the delivery cooldown reset.
+     */
+    resetGuard() {
+        this.guard.reset();
+    }
+    /** Resolve once the current drain run settles (test/integration hook). */
+    async waitForDrain() {
+        await this.drainPromise;
+    }
+    kickDrain() {
+        if (this.draining || this.disposed)
+            return;
+        if (this.state === 'quota_exhausted' || this.state === 'halted')
+            return;
+        this.drainPromise = this.drain().catch((error) => {
+            // Defense in depth: the drain is fire-and-forget, so a rejection here
+            // would be an unhandled promise rejection (process crash under Node
+            // ≥22/24 defaults). A failing advisor may only drop its own backlog —
+            // per-batch errors stay contained inside callModel.
+            this.logger.warn('advisor: drain loop failed — contained', { error });
+        });
+    }
+    /** Serialized drain loop: process the queue one delta at a time. */
+    async drain() {
+        this.draining = true;
+        try {
+            while (!this.disposed
+                && this.queue.length > 0
+                && this.state !== 'quota_exhausted'
+                && this.state !== 'halted') {
+                const delta = this.queue.shift();
+                switch ((await this.processDelta(delta)).kind) {
+                    case 'note':
+                    case 'no-note':
+                        // A completed model call breaks the failure streak — extraction
+                        // failures (KD-2 drops) are output-quality issues, not transport
+                        // failures, and do not count toward the 3-drop flush.
+                        this.consecutiveDrops = 0;
+                        break;
+                    case 'drop':
+                        this.consecutiveDrops++;
+                        if (this.consecutiveDrops >= MAX_CONSECUTIVE_DROPS)
+                            this.flushBacklog();
+                        break;
+                    case 'requeue':
+                        this.queue.unshift(delta); // quota pause: batch retained for a later resume
+                        return;
+                    case 'halt':
+                        this.flushBacklog(); // halted: drop any still-pending backlog
+                        return;
+                    case 'aborted':
+                        return;
+                }
+            }
+        }
+        finally {
+            this.draining = false;
+        }
+    }
+    /** KD-5: clear the pending backlog after consecutive failures (never stall). */
+    flushBacklog() {
+        this.consecutiveDrops = 0;
+        if (this.queue.length === 0)
+            return;
+        const flushed = this.queue.length;
+        this.queue.length = 0;
+        this.logger.warn('advisor: flushed pending backlog after consecutive failures', { flushed });
+    }
+    /** Process one delta: attempt + single retry (transient), classify terminal failures. */
+    async processDelta(delta) {
+        // One advisor model cycle per delta: the emission guard's one-note-per-
+        // update latch resets here, so each processed delta may deliver one note
+        // again (spec §6; the reset point is the drain's per-delta boundary).
+        this.guard.beginUpdate();
+        for (let attempt = 0; attempt <= MAX_TRANSIENT_ATTEMPTS; attempt++) {
+            if (attempt > 0) {
+                if (this.disposed)
+                    return { kind: 'aborted' };
+                await sleep(this.retryBackoffMs);
+                if (this.disposed)
+                    return { kind: 'aborted' };
+            }
+            const result = await this.callModel(delta);
+            if (result.kind === 'note' || result.kind === 'no-note' || result.kind === 'aborted')
+                return result;
+            switch (classifyFailure(result.failure)) {
+                case 'quota':
+                    this.state = 'quota_exhausted';
+                    this.logger.warn('advisor: quota/rate-limit reached — paused, batch retained', { failure: result.failure });
+                    return { kind: 'requeue' };
+                case 'permanent':
+                    this.state = 'halted';
+                    this.logger.warn('advisor: permanent model error — halted', { failure: result.failure });
+                    return { kind: 'halt' };
+                case 'transient':
+                    break; // retry once (the loop's next iteration)
+            }
+        }
+        this.logger.warn('advisor: dropping delta after transient failures', { attempts: MAX_TRANSIENT_ATTEMPTS + 1 });
+        return { kind: 'drop' };
+    }
+    /** One model call: build options, stream text, extract the note (KD-2). */
+    async callModel(delta) {
+        const env_1 = { stack: [], error: void 0, hasError: false };
+        try {
+            let text = '';
+            let finish;
+            // Call-level deadline (dsh-timeout): fuses the runtime's dispose signal
+            // with a whole-call timer. The fused signal is passed to the provider
+            // (AbortSignal honored) AND raced per chunk below, so a hung stream cannot
+            // wedge the drain even when the provider ignores the signal. A timeout is
+            // a transient failure — KD-5 retry(1) → drop (qc2 W-4 / qc3 W-1).
+            const deadlineHandle = __addDisposableResource(env_1, deadline(this.controller.signal, this.callTimeoutMs, ADVISOR_CALL_TIMEOUT), false);
+            const deadlineSignal = deadlineHandle.signal;
+            try {
+                // Capability-gate `reasoningEffort` (qc2 W-1 / qc1 W-1 / qc3 F-3):
+                // resolve the model's declared efforts ONCE per (provider, model) and
+                // pass 'off' only when supported; never fail the call on a resolution
+                // error (the option is simply omitted). The resolution is bounded by the
+                // call deadline (n4 QC N-5): the fused signal is threaded through, so a
+                // hung adapter capability lookup that honors cancellation aborts with
+                // the call instead of wedging the drain ahead of the deadline-guarded
+                // stream loop.
+                const reasoningEffort = await this.resolveReasoningEffort(deadlineSignal);
+                const stream = this.llm.stream(this.buildOptions(delta, deadlineSignal, reasoningEffort));
+                const iterator = stream[Symbol.asyncIterator]();
+                for (;;) {
+                    const next = await raceIteratorNext(iterator, deadlineSignal);
+                    if (next === 'aborted') {
+                        // Best-effort teardown of a provider that may still be mid-flight;
+                        // never await a hung teardown (it may never settle).
+                        iterator.return?.().catch(() => { });
+                        if (timeoutOf(deadlineSignal, ADVISOR_CALL_TIMEOUT) !== undefined) {
+                            return {
+                                kind: 'failure',
+                                failure: { message: `advisor call timed out after ${this.callTimeoutMs}ms`, code: 'TIMEOUT' },
+                            };
+                        }
+                        return { kind: 'aborted' }; // dispose aborted the in-flight call
+                    }
+                    if (next.done)
+                        break;
+                    const chunk = next.value;
+                    if (chunk.type === 'text-delta')
+                        text += chunk.text;
+                    else if (chunk.type === 'finish')
+                        finish = chunk.reason;
+                }
+            }
+            catch (error) {
+                return { kind: 'failure', failure: normalizeFailure(error) };
+            }
+            if (finish === undefined) {
+                return { kind: 'failure', failure: { message: 'advisor stream ended without a finish chunk', code: 'UNKNOWN' } };
+            }
+            if (finish.kind === 'error')
+                return { kind: 'failure', failure: finish.failure };
+            if (finish.kind === 'aborted') {
+                // Our own dispose aborts the in-flight call; a provider-side abort is a
+                // terminal failure like any other. A deadline timeout surfaced as a
+                // provider abort (rather than through the per-chunk race) is still the
+                // transient timeout case — KD-5 retry once → drop.
+                if (timeoutOf(deadlineSignal, ADVISOR_CALL_TIMEOUT) !== undefined) {
+                    return {
+                        kind: 'failure',
+                        failure: { message: `advisor call timed out after ${this.callTimeoutMs}ms`, code: 'TIMEOUT' },
+                    };
+                }
+                if (this.disposed || this.controller.signal.aborted)
+                    return { kind: 'aborted' };
+                return { kind: 'failure', failure: finish.failure };
+            }
+            // stop | max-tokens | tool-calls: extract from the collected text (KD-2;
+            // no retry on parse failures — the frame must simply be absent/valid).
+            // KD-I3 drop classification (issue #102): an EMPTY trimmed reply is an
+            // empty drop (the classic case is a thinking model exhausting the token
+            // budget — finish: max-tokens); a reply with text but no parseable frame
+            // is an unparsed drop unless the opt-in prose fallback rescues it. Both
+            // classes are counted with a timestamp and warn once per runtime, so
+            // "the advisor is running but never speaks" is discoverable instead of
+            // debug-only. Drops still return 'no-note': KD-2 extraction failures are
+            // output-quality issues, not transport failures (no KD-5 retry, no
+            // consecutive-drop counting).
+            let note = extractAdviceNote(text);
+            if (note === undefined) {
+                if (text.trim().length === 0) {
+                    this.recordEmptyReply(finish);
+                    return { kind: 'no-note' };
+                }
+                // KD-I2 prose fallback (opt-in, default off): the JSON frame keeps
+                // priority — only when NO frame yields a usable note (an empty- or
+                // invalid-note frame included) AND the flag is on does the cleaned
+                // prose body become a nit note and re-enter the normal guard/delivery
+                // pipeline below. With the flag off the reply is dropped exactly as
+                // before (default behavior unchanged).
+                if (this.proseFallback)
+                    note = extractProseFallbackNote(text);
+                if (note === undefined) {
+                    this.recordUnparsedReply();
+                    return { kind: 'no-note' };
+                }
+            }
+            try {
+                // The T5 emission guard sits between extraction and delivery: only
+                // accepted notes reach the delivery callback (T6). Suppression is
+                // silent — the caller cannot tell an accepted from a suppressed note,
+                // and a guard failure must never crash the drain (T4 F1 containment).
+                if (this.guard.accept(note)) {
+                    // T7: timestamp the moment a note is accepted for delivery (before
+                    // onNote, so a throwing delivery seam cannot lose the activity
+                    // record) — surfaced by `/advisor status` as "last activity".
+                    this.lastActivityAt = Date.now();
+                    this.onNote(note);
+                }
+                else {
+                    this.logger.debug('advisor: note suppressed by emission guard', {
+                        note: note.note,
+                        severity: note.severity,
+                    });
+                }
+            }
+            catch (error) {
+                // The emission guard / delivery seam must never crash the drain: log
+                // and continue. The model call itself succeeded — this is not a
+                // transport failure, so retry/drop/quota/halt semantics are untouched
+                // and the note still counts as extracted.
+                this.logger.warn('advisor: emission guard or delivery callback threw — contained', { error });
+            }
+            return { kind: 'note', note };
+        }
+        catch (e_1) {
+            env_1.error = e_1;
+            env_1.hasError = true;
+        }
+        finally {
+            __disposeResources(env_1);
+        }
+    }
+    /**
+     * KD-I3: count + timestamp an EMPTY-reply drop and warn ONCE per runtime
+     * with the fix hint (raise the budget); repeats fall back to a debug line.
+     * The finish reason rides along — `max-tokens` vs `stop` is the
+     * budget-exhausted vs genuinely-empty tell (issue #102 evidence).
+     */
+    recordEmptyReply(finish) {
+        this.emptyReplyCount++;
+        this.lastEmptyReplyTimestamp = Date.now();
+        if (this.emptyReplyWarned) {
+            this.logger.debug('advisor: empty reply dropped', { finish: finish.kind });
+            return;
+        }
+        this.emptyReplyWarned = true;
+        this.logger.warn('advisor: empty reply dropped — reasoning may be exhausting the token budget; consider raising maxTokens', { finish: finish.kind });
+    }
+    /**
+     * KD-I3: count + timestamp an UNPARSED-reply drop and warn ONCE per runtime
+     * with the fix hint (enable the prose fallback); repeats fall back to the
+     * original KD-2 debug line.
+     */
+    recordUnparsedReply() {
+        this.unparsedReplyCount++;
+        this.lastUnparsedReplyTimestamp = Date.now();
+        if (this.unparsedReplyWarned) {
+            this.logger.debug('advisor: reply yielded no note — dropped (no parseable non-empty JSON note in the reply)');
+            return;
+        }
+        this.unparsedReplyWarned = true;
+        this.logger.warn('advisor: reply yielded no note — dropped (no parseable non-empty JSON note in the reply); consider enabling proseFallback');
+    }
+    buildOptions(delta, signal, reasoningEffort) {
+        return {
+            provider: this.provider,
+            model: this.model,
+            system: this.systemPrompt,
+            messages: [createUserMessage({
+                    content: [{ type: 'text', text: delta.markdown }],
+                    source: { kind: 'user' },
+                })],
+            // n4 root-cause (host-observed "reply yielded no note"): deepseek-v4-flash
+            // is a reasoning model — with the default 256-token budget the reasoning
+            // stream consumed the whole budget, the text output came back EMPTY
+            // (finish: max-tokens), and KD-2 dropped every reply. Turn reasoning OFF
+            // so the budget goes to the JSON frame, and raise it for headroom
+            // (ADVISOR_MAX_TOKENS). The advisor's job is a short structured note —
+            // reasoning is not needed. The same applies to any reasoning-capable
+            // model, including the 0.1.5-rc.2 default deepseek-flash. Capability-gated
+            // (qc2 W-1 / qc1 W-1 / qc3 F-3): `resolveReasoningEffort` passes the
+            // branded 'off' ONLY when the resolved model declares it; otherwise the
+            // option is omitted entirely (the dsh LlmRuntime would reject an explicit
+            // effort for a model whose adapter lacks reasoning metadata with
+            // UNSUPPORTED_REASONING_EFFORT, silently killing the advisor for
+            // non-deepseek models — pre-n4 these worked because no effort was sent).
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+            // Token budget (KD-I1, issue #102): operator-configurable via the
+            // config key `maxTokens` (128..16384) — KD-6's code invariant was
+            // superseded because thinking models behind third-party gateways can
+            // exhaust a fixed budget on reasoning and return an empty body. The
+            // default stays the user-directed 768 (ADVISOR_MAX_TOKENS — see its
+            // supersession chain: 256 -> 5120 -> 768), so unconfigured runtimes
+            // behave exactly as before.
+            maxTokens: this.maxTokens,
+            signal,
+            // KD-5: `purpose` is a closed union ('compaction' | 'session-title'); an
+            // advisor call is an ordinary conversation request and leaves it unset.
+        };
+    }
+    /**
+     * Capability-gate the `reasoningEffort: 'off'` option (qc2 W-1 / qc1 W-1 /
+     * qc3 F-3): pass the branded 'off' effort only when the resolved model's
+     * `reasoning.efforts` includes it, else omit the option (`resolveCallFor`
+     * materializes the adapter default). Cached per (provider, model) — one
+     * resolution per runtime, never per call — but ONLY definitive verdicts are
+     * cached: a resolution failure (unknown route, adapter throw, or a deadline
+     * abort — n4 QC N-5) is advisory and returns `undefined` WITHOUT caching, so
+     * a transient failure retries the resolution on the next call instead of
+     * latching thinking-off unavailable for the runtime's lifetime. A definitive
+     * no-'off' verdict logs the unavailable line once per runtime
+     * (`thinkingOffLogged`); resolution failures get no log-once latch of their
+     * own. The optional `signal` (the call's deadline signal) is threaded into
+     * `resolveModelInfo`, whose contract allows adapter-owned asynchronous
+     * lookup with cancellation — a hung lookup that honors the signal aborts
+     * with the call deadline instead of wedging the drain.
+     */
+    async resolveReasoningEffort(signal) {
+        const key = `${this.provider}\u0000${this.model}`;
+        if (this.reasoningEffortCache.has(key))
+            return this.reasoningEffortCache.get(key);
+        // Method absent → definitive verdict: this runtime has no capability API
+        // at all (W-1 fallback), so 'off' is unreachable — cache and log once.
+        if (this.llm.resolveModelInfo === undefined) {
+            this.reasoningEffortCache.set(key, undefined);
+            this.logThinkingOffUnavailable('no capability API');
+            return undefined;
+        }
+        let effort;
+        try {
+            const info = await this.llm.resolveModelInfo(this.provider, this.model, signal);
+            effort = info?.reasoning?.efforts.some((entry) => entry.id === ReasoningEffortId('off'))
+                ? ReasoningEffortId('off')
+                : undefined;
+        }
+        catch {
+            // Failure (adapter throw OR deadline abort — one class): the call
+            // proceeds without the option, but the failure is NOT cached and gets no
+            // log-once latch — the next call resolves afresh.
+            return undefined;
+        }
+        this.reasoningEffortCache.set(key, effort);
+        if (effort === undefined)
+            this.logThinkingOffUnavailable('model does not advertise thinking-off');
+        return effort;
+    }
+    /** Emit the definitive no-'off' line exactly once per runtime. */
+    logThinkingOffUnavailable(reason) {
+        if (this.thinkingOffLogged)
+            return;
+        this.thinkingOffLogged = true;
+        this.logger.debug('advisor: thinking-off unavailable', { provider: this.provider, model: this.model, reason });
+    }
+}
+//# sourceMappingURL=advisor-runtime.js.map
